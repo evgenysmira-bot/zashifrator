@@ -236,16 +236,45 @@
       found.push({ type: 'fio_initials', value: fm[0], index: s, length: fm[0].length,
                    meta: { kind: 'initials_last' } });
     }
-    // 3) Полное ФИО: три подряд заглавных слова (им./род. падежи).
-    //    Фильтр: каждое слово ≥ 3 букв, чтобы не ловить «И И Иванов» и т.п.
-    const fio3 = /(?<![\wА-Яа-яЁё])([А-ЯЁ][а-яё]{2,30})\s+([А-ЯЁ][а-яё]{2,30})\s+([А-ЯЁ][а-яё]{2,30})(?![\wА-Яа-яЁё])/g;
-    while ((fm = fio3.exec(text)) !== null) {
-      const s = fm.index, e = s + fm[0].length;
-      if (overlaps(s, e)) continue;
-      // Отсекаем явно не-ФИО (например, «Адреса И Реквизиты Сторон» уже отсечено требованием ≥2 строчных)
-      claim(s, e);
-      found.push({ type: 'fio_full', value: fm[0], index: s, length: fm[0].length });
-    }
+    // 3) Полное ФИО — только в контексте (иначе ловим заголовки типа
+    //    «Права Обязанности Сторон»). Триггеры:
+    //    — ПЕРЕД:   «в лице (ген. директора)», «директор/директора», «представитель(я)», «подписант(а)», «гражданин»
+    //    — ПОСЛЕ:   «, действующего/ей …», «(паспорт …»
+    const NAME3 = '([А-ЯЁ][а-яё]{2,30})\\s+([А-ЯЁ][а-яё]{2,30})\\s+([А-ЯЁ][а-яё]{2,30})(?![\\wА-Яа-яЁё])';
+    const fioBefore = new RegExp(
+      '(?:в\\s+лице(?:\\s+\\S+){0,6}\\s+|' +
+      '(?:генеральн[а-яё]+\\s+)?директор[а-яё]*\\s+|' +
+      'представител[а-яё]*\\s+|' +
+      'подписант[а-яё]*\\s+|' +
+      'гражданин[а-яё]*\\s+(?:рф\\s+)?)' +
+      NAME3,
+      'gi'
+    );
+    const fioAfter = new RegExp(
+      '(?<![\\wА-Яа-яЁё])' + NAME3 +
+      '(?=\\s*,?\\s*(?:действующ[а-яё]+|подписав[а-яё]+|\\(?паспорт))',
+      'gi'
+    );
+
+    // Извлекаем имя как «ФИО-тройку в конце совпадения» —
+    // устойчиво к любому количеству пробелов/переносов между словами.
+    const tailName = /([А-ЯЁ][а-яё]{2,30}\s+[А-ЯЁ][а-яё]{2,30}\s+[А-ЯЁ][а-яё]{2,30})(?![\wА-Яа-яЁё])$/;
+    const collectName3 = (re) => {
+      re.lastIndex = 0;
+      let mm;
+      while ((mm = re.exec(text)) !== null) {
+        const inner = tailName.exec(mm[0]);
+        if (!inner) continue;
+        const name = inner[1];
+        const start = mm.index + inner.index;
+        const end = start + name.length;
+        if (overlaps(start, end)) continue;
+        claim(start, end);
+        found.push({ type: 'fio_full', value: name, index: start, length: name.length });
+      }
+    };
+    collectName3(fioBefore);
+    collectName3(fioAfter);
 
     // Сортируем по позиции
     found.sort((a, b) => a.index - b.index);
