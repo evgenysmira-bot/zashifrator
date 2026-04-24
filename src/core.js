@@ -631,13 +631,23 @@
 
     // Пост-пасс 1: объединяем «A (B)» — длинная форма и аббревиатура одной компании
     // получают одинаковый канонический ключ, чтобы быть помечены одной маской.
+    // Также объединяем «Филиал «X» Банка Y» — части одного банка.
     const companyFinds = found.filter(f => f.type === 'company');
     for (let i = 0; i < companyFinds.length - 1; i++) {
       const a = companyFinds[i];
       const b = companyFinds[i + 1];
       const gap = text.substring(a.index + a.length, b.index);
+      // «A (B)» — аббревиатура в скобках
       if (/^[ \t\xa0]*\([ \t\xa0]*$/.test(gap)) {
         if (b.meta && a.meta) b.meta.name = a.meta.name;
+        continue;
+      }
+      // «Филиал «X» Банка Y» / «Представительство «X» ПАО Y» — части одного банка.
+      // Проверяем: A — филиал/представительство, B следует через короткий пробел.
+      if (a.meta && (a.meta.prefix === 'Филиал' || a.meta.prefix === 'Представительство')) {
+        if (/^[ \t\xa0]+$/.test(gap) && gap.length <= 5) {
+          if (b.meta && a.meta) b.meta.name = a.meta.name;
+        }
       }
     }
 
