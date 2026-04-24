@@ -181,6 +181,40 @@ for (const { t, expect } of truePositives) {
     got ? 'получили: ' + got.value : 'не нашли');
 }
 
+// --- Новые триггеры ФИО ---
+const newTriggers = [
+  { t: 'Индивидуальный предприниматель Бурков Антон Анатольевич, (ИНН 500100732259)', expect: 'Бурков Антон Анатольевич' },
+  { t: 'ИП Иванов Иван Иванович действует на основании', expect: 'Иванов Иван Иванович' },
+  { t: 'от имени Петрова Петра Петровича', expect: 'Петрова Петра Петровича' },
+  { t: 'на имя Сидорова Степана Степановича', expect: 'Сидорова Степана Степановича' },
+  { t: 'ФИО: Кузнецов Кузьма Кузьмич', expect: 'Кузнецов Кузьма Кузьмич' },
+];
+for (const { t, expect } of newTriggers) {
+  const fs = Z.findAll(t);
+  const got = fs.find(f => f.type === 'fio_full');
+  check('Новый триггер поймал: ' + expect, got && got.value === expect,
+    got ? 'got=' + got.value : 'miss в: "' + t.slice(0, 50) + '…"');
+}
+
+// --- Email, телефон и обрезка адреса по стоп-маркерам ---
+section('Email, телефоны, отсечение адреса');
+const contactTests = [
+  '197101, Санкт-Петербург ул. Ленина д. 14 кв. 1, ИП Буркову почта: sendme812@gmail.com Телефон: +7-921-914-1002',
+];
+for (const t of contactTests) {
+  const fs = Z.findAll(t);
+  const addr = fs.find(f => f.type === 'address');
+  const em   = fs.find(f => f.type === 'email');
+  const ph   = fs.find(f => f.type === 'phone');
+  check('Адрес обрезан перед "ИП/почта"',
+    addr && /кв\.\s*1/.test(addr.value) && !/@|921/.test(addr.value),
+    addr ? 'addr="' + addr.value + '"' : 'no addr');
+  check('Email пойман', em && em.value === 'sendme812@gmail.com',
+    em ? 'email="' + em.value + '"' : 'no');
+  check('Телефон пойман', ph && /914/.test(ph.value),
+    ph ? 'phone="' + ph.value + '"' : 'no');
+}
+
 // --- Несколько ФИО в одном тексте с предшествующими инициалами ---
 const multiFio = [
   'Генеральный директор _______/ А.В.Кукса',

@@ -59,6 +59,7 @@ function filterByOptions(finds) {
   const useBank    = document.getElementById('optBank').checked;
   const useFio     = document.getElementById('optFio').checked;
   const useAddress = document.getElementById('optAddress').checked;
+  const useContact = document.getElementById('optContact').checked;
   return finds.filter(f => {
     if (f.type === 'inn10' || f.type === 'inn12') return useInn;
     if (f.type === 'ogrn'  || f.type === 'ogrnip') return useOgrn;
@@ -66,6 +67,7 @@ function filterByOptions(finds) {
     if (f.type === 'kpp' || f.type === 'bik' || f.type === 'rs' || f.type === 'ks') return useBank;
     if (f.type === 'fio_initials' || f.type === 'fio_full') return useFio;
     if (f.type === 'address') return useAddress;
+    if (f.type === 'email' || f.type === 'phone') return useContact;
     return false;
   });
 }
@@ -226,6 +228,8 @@ function typeLabel(t) {
     fio_initials: 'ФИО (инициалы)',
     fio_full:     'ФИО',
     address:      'Адрес',
+    email:        'Email',
+    phone:        'Телефон',
   })[t] || t;
 }
 
