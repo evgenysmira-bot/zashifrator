@@ -181,6 +181,22 @@ for (const { t, expect } of truePositives) {
     got ? 'получили: ' + got.value : 'не нашли');
 }
 
+// --- ФИО не должна пересекать перенос строки (иначе ломается вёрстка) ---
+section('ФИО не «прыгает» через перенос строки');
+const crossLineSamples = [
+  'Бурков А.А.\nЭлектронная почта',                              // fio2 + следующее слово
+  'А.А.\nЭлектронная',                                            // fio1-подобное — не должно сматчиться
+  'Иванов Иван Иванович\nПетров Пётр Петрович',                   // NAME3 не должно захватить две строки
+  'в лице директора Колесникова\nАлександра Михайловича',         // fioBefore не должно прыгать
+];
+for (const t of crossLineSamples) {
+  const fs = Z.findAll(t);
+  const anyWithNewline = fs.find(f => /[\r\n]/.test(f.value));
+  check('Нет совпадений с переносом: "' + t.replace(/\n/g, '\\n').slice(0, 40) + '…"',
+    !anyWithNewline,
+    anyWithNewline ? 'bad: "' + anyWithNewline.value.replace(/\n/g, '\\n') + '"' : '');
+}
+
 // --- Новые триггеры ФИО ---
 const newTriggers = [
   { t: 'Индивидуальный предприниматель Бурков Антон Анатольевич, (ИНН 500100732259)', expect: 'Бурков Антон Анатольевич' },
