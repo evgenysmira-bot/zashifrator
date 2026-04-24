@@ -197,6 +197,24 @@ for (const t of crossLineSamples) {
     anyWithNewline ? 'bad: "' + anyWithNewline.value.replace(/\n/g, '\\n') + '"' : '');
 }
 
+// --- Латинское OOO, компания без кавычек, паспорт, ФИО перед Паспорт/ИНН ---
+section('Регрессии из реальных документов (латиница, без кавычек, паспорт, signature block)');
+const regressionSamples = [
+  { t: 'OOO «Поляна» в лице директора', wantType: 'company', wantFragment: 'Поляна' },
+  { t: 'Банк-получатель: ПАО Сбербанк', wantType: 'company', wantFragment: 'Сбербанк' },
+  { t: 'Корр. счет в АО Альфа-Банк', wantType: 'company', wantFragment: 'Альфа-Банк' },
+  { t: 'Паспорт 27 08 №123456 выдан', wantType: 'passport', wantFragment: '123456' },
+  { t: 'Номер счета: 40702810001400019679 в банке', wantType: 'rs', wantFragment: '40702810001400019679' },
+  { t: 'Симаненко Антон Анатольевич\nПаспорт 27 08 №123456', wantType: 'fio_full', wantFragment: 'Симаненко Антон Анатольевич' },
+  { t: 'Иванов Иван Иванович\nИНН: 780220695277', wantType: 'fio_full', wantFragment: 'Иванов Иван Иванович' },
+];
+for (const { t, wantType, wantFragment } of regressionSamples) {
+  const fs = Z.findAll(t);
+  const got = fs.find(f => f.type === wantType && f.value.includes(wantFragment));
+  check(`${wantType}: "${wantFragment}" в "${t.replace(/\n/g,'\\n').slice(0,40)}…"`,
+    !!got, got ? 'got="' + got.value.replace(/\n/g,'\\n') + '"' : 'не нашли');
+}
+
 // --- Новые триггеры ФИО ---
 const newTriggers = [
   { t: 'Индивидуальный предприниматель Бурков Антон Анатольевич, (ИНН 500100732259)', expect: 'Бурков Антон Анатольевич' },
