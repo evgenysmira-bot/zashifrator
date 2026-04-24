@@ -136,6 +136,13 @@ async function onMask() {
     const dict = await loadDict();
     for (const mask of Object.keys(dict)) upgradeEntry(dict[mask]);
 
+    // Чистим словарь от масок, которых в документе уже нет —
+    // иначе счётчик разъезжается (получается [КОМПАНИЯ_3] вместо [КОМПАНИЯ_1]).
+    const allMasksInDict = Object.keys(dict);
+    for (const mask of allMasksInDict) {
+      if (!fullText.includes(mask)) delete dict[mask];
+    }
+
     const { inverse } = Zashifrator.buildReplacements(finds, dict);
 
     // Собираем уникальные пары original → mask, сохраняя канонический ключ для компаний.
@@ -242,7 +249,7 @@ async function onUnmask() {
 
 function setStatus(text, kind) {
   const el = document.getElementById('status');
-  el.textContent = text;
+  document.getElementById('statusText').textContent = text;
   el.classList.remove('hidden', 'error', 'ok');
   if (kind) el.classList.add(kind);
 }
