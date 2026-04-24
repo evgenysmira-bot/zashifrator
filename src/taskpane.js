@@ -47,9 +47,8 @@ function upgradeEntry(entry) {
 // Main body + все headers/footers во всех секциях (primary, firstPage, evenPages)
 
 async function getAllBodies(context) {
-  const bodies = [];
   const doc = context.document;
-  bodies.push(doc.body);
+  const raw = [doc.body];
 
   const sections = doc.sections;
   sections.load('items');
@@ -59,15 +58,33 @@ async function getAllBodies(context) {
   for (const section of sections.items) {
     for (const kind of kinds) {
       try {
-        const header = section.getHeader(kind);
-        const footer = section.getFooter(kind);
-        bodies.push(header, footer);
-      } catch (e) {
-        // часть секций может не иметь header'а конкретного типа — молча пропускаем
-      }
+        raw.push(section.getHeader(kind), section.getFooter(kind));
+      } catch (e) { /* иногда header нужного типа нет — игнорируем */ }
     }
   }
-  return bodies;
+
+  // ДЕДУП: если секции ссылаются на один и тот же колонтитул (типичный случай
+  // для Word с «Link to Previous»), прокси-объекты разные, но физический
+  // контент — один. Без этой дедупликации `body.search` вернёт совпадения
+  // N раз (по числу ссылающихся секций), и `insertText` на каждом —
+  // вставит маску N раз в одно место. Отсюда «рекурсия» масок.
+  for (const b of raw) b.load('text');
+  await context.sync();
+
+  const unique = [];
+  const seenTexts = new Set();
+  // Главное тело всегда первое (его текст может пересекаться с колонтитулом,
+  // но это разные физические места).
+  unique.push(raw[0]);
+  seenTexts.add('__main__::' + (raw[0].text || ''));
+  for (let i = 1; i < raw.length; i++) {
+    const text = raw[i].text || '';
+    if (!text) continue;                    // пустые колонтитулы пропускаем
+    if (seenTexts.has(text)) continue;      // уже обработали прокси с этим контентом
+    seenTexts.add(text);
+    unique.push(raw[i]);
+  }
+  return unique;
 }
 
 // Получить текст из всех тел (для findAll)
@@ -191,14 +208,23 @@ async function onUnmask() {
   await Word.run(async (context) => {
     // Длинные маски первыми.
     entries.sort((a, b) => b[0].length - a[0].length);
+
+    // Пре-дедуп: склеиваем подряд идущие одинаковые маски ([X][X] → [X]).
+    // Фикс для документов, замаскированных старой версией с мульти-секционным багом.
+    let cleaned = 0;
+    for (const [mask] of entries) {
+      for (let guard = 0; guard < 15; guard++) {
+        const n = await replaceAllBodies(context, mask + mask, mask);
+        if (n === 0) break;
+        cleaned += n;
+      }
+    }
+
     let total = 0;
     for (const [mask, info] of entries) {
       const originals = info.originals || (info.original ? [info.original] : []);
       if (originals.length === 0) continue;
 
-      // Ищем ВСЕ вхождения маски (в т.ч. в колонтитулах).
-      // Если originals > 1 — на каждое вхождение подставляем соответствующий
-      // вариант по порядку; если вхождений больше — доиспользуем последний.
       const ranges = await searchAllBodies(context, mask);
       for (let i = 0; i < ranges.length; i++) {
         const original = originals[Math.min(i, originals.length - 1)];
@@ -207,7 +233,8 @@ async function onUnmask() {
       await context.sync();
       total += ranges.length;
     }
-    setStatus(`Восстановлено ${total} вхождений.`, 'ok');
+    const suffix = cleaned > 0 ? `, схлопнуто ${cleaned} дубликатов масок` : '';
+    setStatus(`Восстановлено ${total} вхождений${suffix}.`, 'ok');
   });
 }
 
