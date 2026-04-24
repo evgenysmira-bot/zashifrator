@@ -58,12 +58,14 @@ function filterByOptions(finds) {
   const useCompany = document.getElementById('optCompany').checked;
   const useBank    = document.getElementById('optBank').checked;
   const useFio     = document.getElementById('optFio').checked;
+  const useAddress = document.getElementById('optAddress').checked;
   return finds.filter(f => {
     if (f.type === 'inn10' || f.type === 'inn12') return useInn;
     if (f.type === 'ogrn'  || f.type === 'ogrnip') return useOgrn;
     if (f.type === 'company') return useCompany;
     if (f.type === 'kpp' || f.type === 'bik' || f.type === 'rs' || f.type === 'ks') return useBank;
     if (f.type === 'fio_initials' || f.type === 'fio_full') return useFio;
+    if (f.type === 'address') return useAddress;
     return false;
   });
 }
@@ -223,6 +225,7 @@ function typeLabel(t) {
     ks:           'К/с',
     fio_initials: 'ФИО (инициалы)',
     fio_full:     'ФИО',
+    address:      'Адрес',
   })[t] || t;
 }
 

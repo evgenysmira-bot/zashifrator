@@ -108,6 +108,18 @@
                          'Попов', 'Лебедев', 'Козлов', 'Новиков', 'Морозов'];
   const FAKE_INITIALS = ['И.И.', 'П.П.', 'С.С.', 'А.А.', 'В.В.',
                          'Г.Г.', 'Д.Д.', 'Е.Е.', 'К.К.', 'М.М.'];
+  // ---------- Адреса ----------
+  let _addrCounter = 0;
+  function nextAddress() {
+    _addrCounter++;
+    const n = _addrCounter;
+    let zip = '';
+    for (let i = 0; i < 6; i++) zip += Math.floor(Math.random() * 10);
+    // Сохраняем «форму» адреса, чтобы документ читался.
+    return `${zip}, г. Город_${n}, ул. Улица_${n}, д. ${n}, оф. ${n}`;
+  }
+  function resetAddrCounter(n) { _addrCounter = n | 0; }
+
   let _fioCounter = 0;
   function nextFio(kind) {
     _fioCounter++;
@@ -276,6 +288,21 @@
     collectName3(fioBefore);
     collectName3(fioAfter);
 
+    // ---------- Адреса ----------
+    // Ищем блок, начинающийся с 6-значного индекса и идущий до конца абзаца.
+    // Дополнительно требуем в блоке маркер адреса (г./ул./д./край/пер./проспект/пгт/и т.п.),
+    // чтобы не ловить случайные 6-значные числа с запятой.
+    const addrMarkers = /г\.|ул\.|край|переулок|пер\.|проспект|пр-т|пр-д|пгт|шоссе|улица|оф\.|офис|помещ|корпус|корп\.|обл\.|строение|стр\.|р-н|наб\.|площад|пл\.|д\.\s*\d|дом\s+\d|литер/i;
+    const addrRe = /(?<![\wА-Яа-яЁё\d])(\d{6})[, ][^\n\r]{10,500}/g;
+    let am;
+    while ((am = addrRe.exec(text)) !== null) {
+      if (!addrMarkers.test(am[0])) continue;
+      const s = am.index, e = s + am[0].length;
+      if (overlaps(s, e)) continue;
+      claim(s, e);
+      found.push({ type: 'address', value: am[0], index: s, length: am[0].length });
+    }
+
     // Сортируем по позиции
     found.sort((a, b) => a.index - b.index);
     return found;
@@ -290,13 +317,15 @@
       inverse[info.original] = mask;
     }
 
-    let companyN = 0, fioN = 0;
+    let companyN = 0, fioN = 0, addrN = 0;
     for (const mask of Object.keys(existingDict)) {
       const t = existingDict[mask].type;
       if (t === 'company') companyN++;
       else if (t === 'fio_initials' || t === 'fio_full') fioN++;
+      else if (t === 'address') addrN++;
     }
     resetFioCounter(fioN);
+    resetAddrCounter(addrN);
 
     const pending = new Map();
 
@@ -324,6 +353,9 @@
       }
       else if (f.type === 'fio_full') {
         mask = nextFio('fio_full');
+      }
+      else if (f.type === 'address') {
+        mask = nextAddress();
       }
       else continue;
 

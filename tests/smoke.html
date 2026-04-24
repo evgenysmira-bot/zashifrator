@@ -181,6 +181,23 @@ for (const { t, expect } of truePositives) {
     got ? 'получили: ' + got.value : 'не нашли');
 }
 
+// --- Адреса ---
+section('Адреса');
+const addrTests = [
+  { t: '101000, г. Москва, Армянский переулок дом 9, строение 1, офис 407/68.', expect: true },
+  { t: '354340, Россия, Краснодарский край, Сириус ф.т., Сириус пгт., Триумфальный пр-д, д. 1, помещ. 2-036/13.', expect: true },
+  { t: '625000 г. Тюмень, ул. Ленина, д. 5', expect: true },
+  { t: '500100732259 ИНН физлица', expect: false },     // 12-цифровой ИНН, не адрес
+  { t: 'Сумма 1500000 рублей', expect: false },          // число без индекса
+  { t: 'ОКПО 123456 компании', expect: false },          // 6 цифр, но без адресных маркеров
+];
+for (const { t, expect } of addrTests) {
+  const fs = Z.findAll(t);
+  const got = fs.find(f => f.type === 'address');
+  check('Адрес ' + (expect ? 'найден' : 'НЕ найден') + ': "' + t.slice(0, 50) + '…"',
+    !!got === expect, got ? 'value="' + got.value + '"' : 'no match');
+}
+
 // Маскировка/демаскировка этого фрагмента
 const mm1 = (() => {
   const fs = Z.findAll(bankSample);
