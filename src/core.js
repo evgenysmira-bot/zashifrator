@@ -182,6 +182,8 @@
       'ООО', 'ОАО', 'ПАО', 'ЗАО', 'НАО', 'АНО', 'АО', 'ИП',
       // Латинские двойники (часто встречаются в реальных документах)
       'OOO', 'OAO', 'PAO', 'ZAO', 'NAO', 'ANO', 'AO', 'IP',
+      // Филиалы/представительства с названием в кавычках
+      'Филиал', 'Представительство',
     ].sort((a, b) => b.length - a.length);
     const prefixAlt = PREFIXES.map(p => p.replace(/\s+/g, '\\s+')).join('|');
     // Между префиксом и кавычками может быть описание (напр.,
@@ -211,7 +213,7 @@
 
     // Компания БЕЗ кавычек: «ПАО Сбербанк», «АО Альфа-Банк» — короткие
     // аббревиатуры + одно слово с заглавной кириллицы (допускается дефис).
-    const companyNoQ = /(?<![A-Za-zА-Яа-яЁё0-9])(ПАО|ОАО|АО|ООО|ЗАО|НАО|АНО|PAO|OAO|AO|OOO|ZAO|NAO|ANO)[ \t]+([А-ЯЁ][А-ЯЁа-яё\-]{2,40})(?![A-Za-zА-Яа-яЁё0-9])/g;
+    const companyNoQ = /(?<![A-Za-zА-Яа-яЁё0-9])(ПАО|ОАО|АО|ООО|ЗАО|НАО|АНО|PAO|OAO|AO|OOO|ZAO|NAO|ANO|Банк|Банка|Банку)[ \t]+([А-ЯЁ][А-ЯЁа-яё\-]{2,40})(?![A-Za-zА-Яа-яЁё0-9])/g;
     let cnq;
     while ((cnq = companyNoQ.exec(text)) !== null) {
       const start = cnq.index, end = start + cnq[0].length;
@@ -517,6 +519,44 @@
 
     // Сортируем по позиции
     found.sort((a, b) => a.index - b.index);
+
+    // Пост-пасс 1: объединяем «A (B)» — длинная форма и аббревиатура одной компании
+    // получают одинаковый канонический ключ, чтобы быть помечены одной маской.
+    const companyFinds = found.filter(f => f.type === 'company');
+    for (let i = 0; i < companyFinds.length - 1; i++) {
+      const a = companyFinds[i];
+      const b = companyFinds[i + 1];
+      const gap = text.substring(a.index + a.length, b.index);
+      if (/^[ \t\xa0]*\([ \t\xa0]*$/.test(gap)) {
+        if (b.meta && a.meta) b.meta.name = a.meta.name;
+      }
+    }
+
+    // Пост-пасс 2: если адрес переносится на следующий абзац и там
+    // продолжение (маркеры ул./д./пом. и т.п.) — расширяем находку.
+    const addrFinds = found.filter(f => f.type === 'address');
+    for (const f of addrFinds) {
+      let end = f.index + f.length;
+      // Пропускаем пробелы/табы (не трогаем \n/\r)
+      while (end < text.length && (text[end] === ' ' || text[end] === '\t')) end++;
+      // Нужен хотя бы один перевод строки
+      if (text[end] !== '\n' && text[end] !== '\r') continue;
+      while (end < text.length && (text[end] === '\n' || text[end] === '\r')) end++;
+      // Читаем следующую строку
+      let lineEnd = end;
+      while (lineEnd < text.length && text[lineEnd] !== '\n' && text[lineEnd] !== '\r') lineEnd++;
+      const nextLine = text.substring(end, lineEnd);
+      if (nextLine.length === 0 || nextLine.length > 300) continue;
+      // Явно НЕ продолжение — начинается с лейбла «Слово:» или «Слово №»
+      if (/^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё .]*[:№]/.test(nextLine.trim())) continue;
+      if (!addrMarkers.test(nextLine)) continue;
+      const newEnd = lineEnd;
+      if (overlaps(f.index + f.length, newEnd)) continue;
+      claim(f.index + f.length, newEnd);
+      f.value = text.substring(f.index, newEnd);
+      f.length = newEnd - f.index;
+    }
+
     return found;
   }
 

@@ -197,6 +197,31 @@ for (const t of crossLineSamples) {
     anyWithNewline ? 'bad: "' + anyWithNewline.value.replace(/\n/g, '\\n') + '"' : '');
 }
 
+// --- Регрессии из "рыба"-соглашения ---
+section('Regression: Соглашение_защита_концепции_рыба');
+{
+  // "A (B)" → одна маска
+  const t = 'ООО «Продакшн Стейдж» (ООО «ПС»), именуемое';
+  const fs = Z.findAll(t);
+  const { inverse } = Z.buildReplacements(fs, {});
+  const masks = [...new Set(Object.values(inverse))];
+  check('"A (B)" паттерн → одна маска компании',
+    masks.length === 1, 'masks: ' + JSON.stringify(masks));
+
+  // Филиал + Банка
+  const t2 = 'в Филиал «Центральный» Банка ВТБ';
+  const fs2 = Z.findAll(t2).filter(f => f.type === 'company');
+  check('«Филиал «Центральный»» + «Банка ВТБ» → 2 компании',
+    fs2.length >= 2, 'found: ' + fs2.map(f => f.value).join(' | '));
+
+  // Адрес через перенос строки с продолжением
+  const t3 = 'Юридический адрес: 107140, г. Москва\nКрасносельский р-н, ул. Краснопрудная, д. 12/1 стр.1, пом.1/6';
+  const f3 = Z.findAll(t3).find(f => f.type === 'address');
+  check('Адрес через \\n + продолжение с маркерами',
+    f3 && /Краснопрудная/.test(f3.value),
+    f3 ? 'got="'+f3.value.replace(/\n/g,'\\n')+'"' : 'miss');
+}
+
 // --- Регрессии из договора Forumhouse ---
 section('Regression: Forumhouse (адрес с "г,", канонизация ФИО, Контактное лицо)');
 {
