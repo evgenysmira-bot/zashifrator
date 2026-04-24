@@ -118,6 +118,73 @@ check('Нашли ООО «Ромашка»',                  finds.some(f => f
 check('Нашли АО «Альфа-Банк»',                finds.some(f => f.type === 'company' && /Альфа/.test(f.value)));
 check('ИНН-10 не поглотил часть ОГРН',        !finds.some(f => f.type === 'inn10' && f.value === '1027700132'));
 
+// ===== Банковские реквизиты и ФИО (регрессия по скриншотам пользователя) =====
+section('Банковские реквизиты + ФИО из реального договора');
+
+const bankSample = [
+  'Исполнитель: ООО «Ромашка»',
+  '101000, г. Москва, Армянский переулок дом 9, строение 1, офис 407/68.',
+  'ИНН: 5913202214',
+  'КПП: 770101001',
+  'ОГРН: 1310080196216',
+  'Расчетный счет: 40702810938000223972',
+  'Название Банка: ПАО «Сбербанк России»',
+  'Кор.счет: 30101810400000000225',
+  'БИК банка: 044525225',
+  '',
+  'Генеральный директор ___________/ А.В.Кукса',
+  '',
+  'Заказчик  Общество с ограниченной ответственностью «Василёк»',
+  'в лице генерального директора Колесникова Александра Михайловича,',
+  'действующего на основании Устава',
+  '',
+  'Исполнитель  Общество с ограниченной ответственностью «Ромашка»',
+  'в лице генерального директора Куксы Александра Владимировича,',
+  'действующего на основании Устава',
+].join('\n');
+
+const bf = Z.findAll(bankSample);
+pre(bf.map(f => `[${f.type}] "${f.value}"${f.meta ? ' meta=' + JSON.stringify(f.meta) : ''}`).join('\n'));
+
+check('Нашли КПП',       bf.some(f => f.type === 'kpp'  && f.value === '770101001'));
+check('Нашли БИК',       bf.some(f => f.type === 'bik'  && f.value === '044525225'));
+check('Нашли р/с',       bf.some(f => f.type === 'rs'   && f.value === '40702810938000223972'));
+check('Нашли к/с',       bf.some(f => f.type === 'ks'   && f.value === '30101810400000000225'));
+check('Нашли ФИО А.В.Кукса', bf.some(f => f.type === 'fio_initials' && /Кукса/.test(f.value)));
+check('Нашли ФИО Колесникова А.М.', bf.some(f => f.type === 'fio_full' && /Колесников/.test(f.value)));
+check('Нашли ФИО Куксы А.В.',       bf.some(f => f.type === 'fio_full' && /Куксы/.test(f.value)));
+
+// Маскировка/демаскировка этого фрагмента
+const mm1 = (() => {
+  const fs = Z.findAll(bankSample);
+  const { inverse } = Z.buildReplacements(fs, {});
+  const pairs = Object.entries(inverse).sort((a, b) => b[0].length - a[0].length);
+  let m = bankSample;
+  const d = {};
+  for (const [orig, mask] of pairs) {
+    m = m.split(orig).join(mask);
+    d[mask] = { original: orig };
+  }
+  return { m, d };
+})();
+
+const leaks2 = ['770101001','044525225','40702810938000223972','30101810400000000225',
+                'А.В.Кукса','Колесников','Куксы'].filter(x => mm1.m.includes(x));
+check('В маскированном тексте реквизиты и ФИО не остались', leaks2.length === 0,
+  leaks2.length ? 'осталось: ' + leaks2.join(', ') : '');
+
+// Round-trip
+const pairsUn = Object.entries(mm1.d).sort((a, b) => b[0].length - a[0].length);
+let restored2 = mm1.m;
+for (const [mask, info] of pairsUn) restored2 = restored2.split(mask).join(info.original);
+check('Round-trip для банковского фрагмента', restored2 === bankSample,
+  restored2 === bankSample ? '' : 'разошлись');
+
+const bankDet = document.createElement('details');
+bankDet.innerHTML = '<summary>Посмотреть маскированный банковский фрагмент</summary>';
+const bankPre = document.createElement('pre'); bankPre.textContent = mm1.m; bankDet.appendChild(bankPre);
+out.appendChild(bankDet);
+
 // ===== Round-trip =====
 section('Имитация цикла: маскировка → демаскировка');
 

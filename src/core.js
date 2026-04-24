@@ -77,6 +77,50 @@
     return base + check;
   }
 
+  // ---------- КПП / БИК / р-счёт / к-счёт ----------
+  // Без контрольных сумм — просто форматные генераторы, сохраняющие длину и типичный префикс.
+  function generateKpp() {
+    let out = '';
+    for (let i = 0; i < 4; i++) out += Math.floor(Math.random() * 10);   // код налоговой
+    out += '01';                                                           // причина постановки (типовая)
+    for (let i = 0; i < 3; i++) out += Math.floor(Math.random() * 10);    // порядковый
+    return out;
+  }
+  function generateBik() {
+    let out = '04';                                                        // код страны (Россия)
+    for (let i = 0; i < 7; i++) out += Math.floor(Math.random() * 10);
+    return out;
+  }
+  function generateRs() {
+    let out = '40702810';                                                  // типовой префикс коммерч. счёта в рублях
+    for (let i = 0; i < 12; i++) out += Math.floor(Math.random() * 10);
+    return out;
+  }
+  function generateKs() {
+    let out = '30101810';                                                  // корр. счёт в рублях
+    for (let i = 0; i < 12; i++) out += Math.floor(Math.random() * 10);
+    return out;
+  }
+
+  // ---------- ФИО ----------
+  // Генерируем «И.И.Иванов_N» или «Иванов_N И.И.» — чтобы осталось видно, что это ФИО.
+  const FAKE_SURNAMES = ['Иванов', 'Петров', 'Сидоров', 'Кузнецов', 'Смирнов',
+                         'Попов', 'Лебедев', 'Козлов', 'Новиков', 'Морозов'];
+  const FAKE_INITIALS = ['И.И.', 'П.П.', 'С.С.', 'А.А.', 'В.В.',
+                         'Г.Г.', 'Д.Д.', 'Е.Е.', 'К.К.', 'М.М.'];
+  let _fioCounter = 0;
+  function nextFio(kind) {
+    _fioCounter++;
+    const s = FAKE_SURNAMES[(_fioCounter - 1) % FAKE_SURNAMES.length];
+    const ini = FAKE_INITIALS[(_fioCounter - 1) % FAKE_INITIALS.length];
+    const n = _fioCounter;
+    if (kind === 'fio_initials_first') return `${ini}${s}${n}`;
+    if (kind === 'fio_initials_last')  return `${s}${n} ${ini}`;
+    if (kind === 'fio_full')           return `${s}${n} Имя${n} Отчество${n}`;
+    return `${s}${n}`;
+  }
+  function resetFioCounter(n) { _fioCounter = n | 0; }
+
   // ---------- Поиск в тексте ----------
   // Возвращает массив находок: { type, value, index, length, meta }
   function findAll(text) {
@@ -146,6 +190,63 @@
       });
     }
 
+    // ---------- Банковские реквизиты (с меткой) ----------
+    // Маскируем ТОЛЬКО значение (группу 1), метку оставляем.
+    // Для каждой находки: index — позиция группы, value — только число.
+    // Важно: сначала К/с (корр. счёт) — иначе Р/с-регулярка поймает «р.счет» внутри «Кор.счет».
+    // Lookbehind на не-букву, чтобы «р» из «Кор» не матчился как начало метки Р/с.
+    const NL = '(?<![\\wА-Яа-яЁё])'; // not-letter lookbehind
+    const labelledPatterns = [
+      { type: 'kpp', re: new RegExp(NL + '(КПП)\\s*[:№]?\\s*(\\d{9})\\b', 'gi') },
+      { type: 'bik', re: new RegExp(NL + '(БИК(?:\\s+банка)?)\\s*[:№]?\\s*(\\d{9})\\b', 'gi') },
+      { type: 'ks',
+        re:  new RegExp(NL + '(К(?:орр?)?(?:\\.?\\s*сч(?:е|ё)т|\\/с|\\.?\\s*с\\.?))\\s*[:№]?\\s*(\\d{20})\\b', 'gi') },
+      { type: 'rs',
+        re:  new RegExp(NL + '(Р(?:асч(?:е|ё)тный)?(?:[\\.\\/\\s]*с(?:ч(?:е|ё)т)?)?)\\s*[:№]?\\s*(\\d{20})\\b', 'gi') },
+    ];
+    for (const p of labelledPatterns) {
+      p.re.lastIndex = 0;
+      let mm;
+      while ((mm = p.re.exec(text)) !== null) {
+        const numStart = mm.index + mm[0].lastIndexOf(mm[2]);
+        const numEnd = numStart + mm[2].length;
+        if (overlaps(numStart, numEnd)) continue;
+        claim(numStart, numEnd);
+        found.push({ type: p.type, value: mm[2], index: numStart, length: mm[2].length });
+      }
+    }
+
+    // ---------- ФИО ----------
+    // 1) Инициалы + фамилия: «А.В.Кукса», «А. В. Кукса»
+    const fio1 = /(?<![\wА-Яа-яЁё])([А-ЯЁ])\.\s*([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]{1,30})(?![\wА-Яа-яЁё])/g;
+    let fm;
+    while ((fm = fio1.exec(text)) !== null) {
+      const s = fm.index, e = s + fm[0].length;
+      if (overlaps(s, e)) continue;
+      claim(s, e);
+      found.push({ type: 'fio_initials', value: fm[0], index: s, length: fm[0].length,
+                   meta: { kind: 'initials_first' } });
+    }
+    // 2) Фамилия + инициалы: «Кукса А.В.»
+    const fio2 = /(?<![\wА-Яа-яЁё])([А-ЯЁ][а-яё]{1,30})\s+([А-ЯЁ])\.\s*([А-ЯЁ])\.(?![\wА-Яа-яЁё])/g;
+    while ((fm = fio2.exec(text)) !== null) {
+      const s = fm.index, e = s + fm[0].length;
+      if (overlaps(s, e)) continue;
+      claim(s, e);
+      found.push({ type: 'fio_initials', value: fm[0], index: s, length: fm[0].length,
+                   meta: { kind: 'initials_last' } });
+    }
+    // 3) Полное ФИО: три подряд заглавных слова (им./род. падежи).
+    //    Фильтр: каждое слово ≥ 3 букв, чтобы не ловить «И И Иванов» и т.п.
+    const fio3 = /(?<![\wА-Яа-яЁё])([А-ЯЁ][а-яё]{2,30})\s+([А-ЯЁ][а-яё]{2,30})\s+([А-ЯЁ][а-яё]{2,30})(?![\wА-Яа-яЁё])/g;
+    while ((fm = fio3.exec(text)) !== null) {
+      const s = fm.index, e = s + fm[0].length;
+      if (overlaps(s, e)) continue;
+      // Отсекаем явно не-ФИО (например, «Адреса И Реквизиты Сторон» уже отсечено требованием ≥2 строчных)
+      claim(s, e);
+      found.push({ type: 'fio_full', value: fm[0], index: s, length: fm[0].length });
+    }
+
     // Сортируем по позиции
     found.sort((a, b) => a.index - b.index);
     return found;
@@ -160,13 +261,13 @@
       inverse[info.original] = mask;
     }
 
-    let companyN = 0, innN = 0, ogrnN = 0;
+    let companyN = 0, fioN = 0;
     for (const mask of Object.keys(existingDict)) {
       const t = existingDict[mask].type;
       if (t === 'company') companyN++;
-      else if (t === 'inn10' || t === 'inn12') innN++;
-      else if (t === 'ogrn' || t === 'ogrnip') ogrnN++;
+      else if (t === 'fio_initials' || t === 'fio_full') fioN++;
     }
+    resetFioCounter(fioN);
 
     const pending = new Map();
 
@@ -179,11 +280,23 @@
       else if (f.type === 'inn12')   mask = generateInn12();
       else if (f.type === 'ogrn')    mask = generateOgrn();
       else if (f.type === 'ogrnip')  mask = generateOgrnip();
+      else if (f.type === 'kpp')     mask = generateKpp();
+      else if (f.type === 'bik')     mask = generateBik();
+      else if (f.type === 'rs')      mask = generateRs();
+      else if (f.type === 'ks')      mask = generateKs();
       else if (f.type === 'company') {
         companyN++;
         const prefix = (f.meta && f.meta.prefix) || 'ООО';
         mask = `${prefix} «Организация_${companyN}»`;
       }
+      else if (f.type === 'fio_initials') {
+        const kind = f.meta && f.meta.kind === 'initials_last' ? 'fio_initials_last' : 'fio_initials_first';
+        mask = nextFio(kind);
+      }
+      else if (f.type === 'fio_full') {
+        mask = nextFio('fio_full');
+      }
+      else continue;
 
       pending.set(f.value, { mask, type: f.type, meta: f.meta });
       inverse[f.value] = mask;

@@ -56,10 +56,14 @@ function filterByOptions(finds) {
   const useInn     = document.getElementById('optInn').checked;
   const useOgrn    = document.getElementById('optOgrn').checked;
   const useCompany = document.getElementById('optCompany').checked;
+  const useBank    = document.getElementById('optBank').checked;
+  const useFio     = document.getElementById('optFio').checked;
   return finds.filter(f => {
     if (f.type === 'inn10' || f.type === 'inn12') return useInn;
     if (f.type === 'ogrn'  || f.type === 'ogrnip') return useOgrn;
     if (f.type === 'company') return useCompany;
+    if (f.type === 'kpp' || f.type === 'bik' || f.type === 'rs' || f.type === 'ks') return useBank;
+    if (f.type === 'fio_initials' || f.type === 'fio_full') return useFio;
     return false;
   });
 }
@@ -208,11 +212,17 @@ async function renderDictionary(dict) {
 
 function typeLabel(t) {
   return ({
-    inn10:   'ИНН-10',
-    inn12:   'ИНН-12',
-    ogrn:    'ОГРН',
-    ogrnip:  'ОГРНИП',
-    company: 'Компания',
+    inn10:        'ИНН-10',
+    inn12:        'ИНН-12',
+    ogrn:         'ОГРН',
+    ogrnip:       'ОГРНИП',
+    company:      'Компания',
+    kpp:          'КПП',
+    bik:          'БИК',
+    rs:           'Р/с',
+    ks:           'К/с',
+    fio_initials: 'ФИО (инициалы)',
+    fio_full:     'ФИО',
   })[t] || t;
 }
 
