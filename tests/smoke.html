@@ -197,6 +197,22 @@ for (const t of crossLineSamples) {
     anyWithNewline ? 'bad: "' + anyWithNewline.value.replace(/\n/g, '\\n') + '"' : '');
 }
 
+// --- Регрессии из договора аренды (гос. учреждение + адрес без индекса) ---
+section('Regression: МБУ и адрес по лейблу без индекса');
+{
+  const t = 'Муниципальное бюджетное учреждение «Культурно-досуговое объединение» в лице директора';
+  const c = Z.findAll(t).find(f => f.type === 'company');
+  check('МБУ + «название» → company',
+    c && c.value.includes('Культурно-досуговое объединение'),
+    c ? 'got="'+c.value+'"' : 'miss');
+
+  const t2 = 'по адресу: Иркутская область, город Нижнеудинск, ул.Октябрьская, 3, с земельным участком';
+  const a = Z.findAll(t2).find(f => f.type === 'address');
+  check('Адрес без индекса через «по адресу:»',
+    a && /Октябрьская/.test(a.value) && !/земельным/.test(a.value),
+    a ? 'got="'+a.value+'"' : 'miss');
+}
+
 // --- Регрессии из "рыба"-соглашения ---
 section('Regression: Соглашение_защита_концепции_рыба');
 {
