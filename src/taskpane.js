@@ -48,43 +48,27 @@ function upgradeEntry(entry) {
 
 async function getAllBodies(context) {
   const doc = context.document;
-  const raw = [doc.body];
+  const bodies = [doc.body];
 
   const sections = doc.sections;
   sections.load('items');
-  await context.sync();
+  try { await context.sync(); }
+  catch (e) { return bodies; } // если sections недоступны — работаем только с body
 
+  if (!sections.items || sections.items.length === 0) return bodies;
+
+  // Берём колонтитулы ТОЛЬКО из первой секции. В большинстве .docx секции
+  // линкованы и совместно используют один и тот же физический колонтитул,
+  // поэтому достаточно одного прохода. Исключаем мульти-обработку, которая
+  // вызывала «рекурсию» масок и GeneralException при батчевом load.
+  const firstSection = sections.items[0];
   const kinds = ['Primary', 'FirstPage', 'EvenPages'];
-  for (const section of sections.items) {
-    for (const kind of kinds) {
-      try {
-        raw.push(section.getHeader(kind), section.getFooter(kind));
-      } catch (e) { /* иногда header нужного типа нет — игнорируем */ }
-    }
+  for (const kind of kinds) {
+    try {
+      bodies.push(firstSection.getHeader(kind), firstSection.getFooter(kind));
+    } catch (e) { /* отсутствующий тип колонтитула — пропускаем */ }
   }
-
-  // ДЕДУП: если секции ссылаются на один и тот же колонтитул (типичный случай
-  // для Word с «Link to Previous»), прокси-объекты разные, но физический
-  // контент — один. Без этой дедупликации `body.search` вернёт совпадения
-  // N раз (по числу ссылающихся секций), и `insertText` на каждом —
-  // вставит маску N раз в одно место. Отсюда «рекурсия» масок.
-  for (const b of raw) b.load('text');
-  await context.sync();
-
-  const unique = [];
-  const seenTexts = new Set();
-  // Главное тело всегда первое (его текст может пересекаться с колонтитулом,
-  // но это разные физические места).
-  unique.push(raw[0]);
-  seenTexts.add('__main__::' + (raw[0].text || ''));
-  for (let i = 1; i < raw.length; i++) {
-    const text = raw[i].text || '';
-    if (!text) continue;                    // пустые колонтитулы пропускаем
-    if (seenTexts.has(text)) continue;      // уже обработали прокси с этим контентом
-    seenTexts.add(text);
-    unique.push(raw[i]);
-  }
-  return unique;
+  return bodies;
 }
 
 // Получить текст из всех тел (для findAll)
@@ -132,30 +116,37 @@ async function replaceAllBodies(context, needle, replacement) {
   const bodies = await getAllBodies(context);
   const allParas = [];
   for (const body of bodies) {
-    const paras = body.paragraphs;
-    paras.load('text');
-    allParas.push(paras);
+    try {
+      const paras = body.paragraphs;
+      paras.load('text');
+      allParas.push(paras);
+    } catch (e) { /* пропускаем тело, если параграфы недоступны */ }
   }
-  await context.sync();
+  try { await context.sync(); }
+  catch (e) { return count; } // если не смогли загрузить параграфы — выходим
 
   for (const paras of allParas) {
-    for (const p of paras.items) {
-      const txt = p.text || '';
-      if (!txt) continue;
-      const normTxt = norm(txt);
-      if (!normTxt.includes(normalizedNeedle)) continue;
-      // Восстанавливаем абзац: префикс + маска + суффикс
-      const idx = normTxt.indexOf(normalizedNeedle);
-      const prefix = normTxt.substring(0, idx).replace(/\s+$/, '');
-      const suffix = normTxt.substring(idx + normalizedNeedle.length).replace(/^\s+/, '');
-      const sep1 = prefix && !/[\s.,;:]$/.test(prefix) ? ' ' : '';
-      const sep2 = suffix && !/^[\s.,;:]/.test(suffix) ? ' ' : '';
-      const newText = prefix + sep1 + replacement + sep2 + suffix;
-      p.insertText(newText, Word.InsertLocation.replace);
-      count++;
+    let items;
+    try { items = paras.items; } catch (e) { continue; }
+    if (!items) continue;
+    for (const p of items) {
+      try {
+        const txt = p.text || '';
+        if (!txt) continue;
+        const normTxt = norm(txt);
+        if (!normTxt.includes(normalizedNeedle)) continue;
+        const idx = normTxt.indexOf(normalizedNeedle);
+        const prefix = normTxt.substring(0, idx).replace(/\s+$/, '');
+        const suffix = normTxt.substring(idx + normalizedNeedle.length).replace(/^\s+/, '');
+        const sep1 = prefix && !/[\s.,;:]$/.test(prefix) ? ' ' : '';
+        const sep2 = suffix && !/^[\s.,;:]/.test(suffix) ? ' ' : '';
+        const newText = prefix + sep1 + replacement + sep2 + suffix;
+        p.insertText(newText, Word.InsertLocation.replace);
+        count++;
+      } catch (e) { /* skip this paragraph */ }
     }
   }
-  await context.sync();
+  try { await context.sync(); } catch (e) {}
   return count;
 }
 
