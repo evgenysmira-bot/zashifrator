@@ -34,15 +34,81 @@ function saveDict(dict) {
   });
 }
 
+// Приводим старый формат {original, type} к новому {originals[], type, canon}
+function upgradeEntry(entry) {
+  if (!entry.originals) {
+    entry.originals = entry.original ? [entry.original] : [];
+    delete entry.original;
+  }
+  return entry;
+}
+
+// ----------- Получить список всех «тел» для поиска -----------
+// Main body + все headers/footers во всех секциях (primary, firstPage, evenPages)
+
+async function getAllBodies(context) {
+  const bodies = [];
+  const doc = context.document;
+  bodies.push(doc.body);
+
+  const sections = doc.sections;
+  sections.load('items');
+  await context.sync();
+
+  const kinds = ['Primary', 'FirstPage', 'EvenPages'];
+  for (const section of sections.items) {
+    for (const kind of kinds) {
+      try {
+        const header = section.getHeader(kind);
+        const footer = section.getFooter(kind);
+        bodies.push(header, footer);
+      } catch (e) {
+        // часть секций может не иметь header'а конкретного типа — молча пропускаем
+      }
+    }
+  }
+  return bodies;
+}
+
+// Получить текст из всех тел (для findAll)
+async function getAllText(context) {
+  const bodies = await getAllBodies(context);
+  for (const b of bodies) b.load('text');
+  await context.sync();
+  // Разделяем тексты разных тел символом \u2029 — вне регулярок, не затронет матчинг.
+  return bodies.map(b => b.text || '').join('\u2029');
+}
+
+// Заменить все вхождения `needle` на `replacement` во всех телах.
+// Возвращает массив найденных Range-объектов в порядке обхода (для поддержки
+// множественных originals на одну маску при демаске).
+async function searchAllBodies(context, needle) {
+  const bodies = await getAllBodies(context);
+  const collections = [];
+  for (const b of bodies) {
+    const res = b.search(needle, { matchCase: true, matchWholeWord: false });
+    res.load('items');
+    collections.push(res);
+  }
+  await context.sync();
+  const all = [];
+  for (const c of collections) for (const r of c.items) all.push(r);
+  return all;
+}
+
+async function replaceAllBodies(context, needle, replacement) {
+  const ranges = await searchAllBodies(context, needle);
+  for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
+  await context.sync();
+  return ranges.length;
+}
+
 // ----------- Замаскировать -----------
 
 async function onMask() {
   setStatus('Маскируем…');
   await Word.run(async (context) => {
-    const body = context.document.body;
-    body.load('text');
-    await context.sync();
-    const fullText = body.text;
+    const fullText = await getAllText(context);
 
     const finds = Zashifrator.findAll(fullText);
     if (finds.length === 0) {
@@ -51,26 +117,42 @@ async function onMask() {
     }
 
     const dict = await loadDict();
+    for (const mask of Object.keys(dict)) upgradeEntry(dict[mask]);
+
     const { inverse } = Zashifrator.buildReplacements(finds, dict);
 
+    // Собираем уникальные пары original → mask, сохраняя канонический ключ для компаний.
     const pairs = [];
-    const seen = new Set();
+    const seenOrig = new Set();
     for (const f of finds) {
-      if (seen.has(f.value)) continue;
-      seen.add(f.value);
+      if (seenOrig.has(f.value)) continue;
+      seenOrig.add(f.value);
       const mask = inverse[f.value];
       if (!mask) continue;
-      pairs.push({ original: f.value, mask, type: f.type });
+      pairs.push({ original: f.value, mask, type: f.type, meta: f.meta });
     }
+
+    // Обновляем словарь: добавляем НОВЫЕ оригиналы в originals[] каждой маски.
     for (const p of pairs) {
-      if (!dict[p.mask]) dict[p.mask] = { original: p.original, type: p.type };
+      if (!dict[p.mask]) dict[p.mask] = { type: p.type, originals: [] };
+      upgradeEntry(dict[p.mask]);
+      if (!dict[p.mask].originals.includes(p.original)) {
+        dict[p.mask].originals.push(p.original);
+      }
+      if (p.type === 'company') {
+        const canon = (p.meta && Zashifrator.canonicalCompanyKey
+          ? Zashifrator.canonicalCompanyKey(p.meta)
+          : null);
+        if (canon) dict[p.mask].canon = canon;
+      }
     }
-    // Сначала длинные — чтобы не попасть в подстроку.
+
+    // Длинные оригиналы первыми — чтобы не попасть в подстроку.
     pairs.sort((a, b) => b.original.length - a.original.length);
 
     let total = 0;
     for (const { original, mask } of pairs) {
-      total += await replaceAll(context, original, mask);
+      total += await replaceAllBodies(context, original, mask);
     }
 
     await saveDict(dict);
@@ -89,30 +171,29 @@ async function onUnmask() {
     return;
   }
 
+  for (const [, info] of entries) upgradeEntry(info);
+
   await Word.run(async (context) => {
+    // Длинные маски первыми.
     entries.sort((a, b) => b[0].length - a[0].length);
     let total = 0;
     for (const [mask, info] of entries) {
-      total += await replaceAll(context, mask, info.original);
+      const originals = info.originals || (info.original ? [info.original] : []);
+      if (originals.length === 0) continue;
+
+      // Ищем ВСЕ вхождения маски (в т.ч. в колонтитулах).
+      // Если originals > 1 — на каждое вхождение подставляем соответствующий
+      // вариант по порядку; если вхождений больше — доиспользуем последний.
+      const ranges = await searchAllBodies(context, mask);
+      for (let i = 0; i < ranges.length; i++) {
+        const original = originals[Math.min(i, originals.length - 1)];
+        ranges[i].insertText(original, Word.InsertLocation.replace);
+      }
+      await context.sync();
+      total += ranges.length;
     }
     setStatus(`Восстановлено ${total} вхождений.`, 'ok');
   });
-}
-
-// ----------- Замена всех вхождений -----------
-
-async function replaceAll(context, needle, replacement) {
-  const body = context.document.body;
-  const results = body.search(needle, { matchCase: true, matchWholeWord: false });
-  results.load('items');
-  await context.sync();
-
-  const items = results.items;
-  for (const r of items) {
-    r.insertText(replacement, Word.InsertLocation.replace);
-  }
-  await context.sync();
-  return items.length;
 }
 
 // ----------- Утилиты -----------

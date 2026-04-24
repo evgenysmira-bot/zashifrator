@@ -457,8 +457,26 @@
     return found;
   }
 
+  // ---------- Канонический ключ для компаний ----------
+  // Две разные строки — «Публичное акционерное общество «Сбербанк России»»
+  // и «ПАО Сбербанк» — это одна и та же компания. Чтобы получить одинаковую
+  // маску, группируем по первому слову названия (без учёта регистра и знаков).
+  function canonicalCompanyKey(meta) {
+    const raw = (meta && meta.name) ? meta.name : '';
+    if (!raw) return null;
+    const clean = raw.toLowerCase()
+      .replace(/[^\p{L}\s\-]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!clean) return null;
+    return clean.split(' ')[0];
+  }
+
   // ---------- Построение карты замен ----------
   // Все маски имеют формат [ТИП_N]. Одинаковые значения получают одну и ту же маску.
+  // Для компаний дополнительно: разные формы одного имени (полная/короткая) получают
+  // ОДНУ маску по каноническому ключу, но при демаске восстанавливается исходная форма
+  // для каждого вхождения — за счёт хранения массива originals в словаре.
   // Нумерация сквозная в рамках ярлыка (ИНН-10 и ИНН-12 разделяют счётчик [ИНН_N]).
   const PLACEHOLDER_LABELS = {
     inn10:        'ИНН',
@@ -486,11 +504,18 @@
   // pending: Map<original, {mask, type, meta}>
   function buildReplacements(finds, existingDict) {
     const inverse = {}; // original -> mask
+    // Карта: «канонический ключ компании» -> маска
+    const companyCanonToMask = {};
+    // Считываем все уже существующие записи — поддерживаем старый формат (original)
+    // и новый (originals[]).
     for (const [mask, info] of Object.entries(existingDict)) {
-      inverse[info.original] = mask;
+      const originals = info.originals || (info.original ? [info.original] : []);
+      for (const orig of originals) inverse[orig] = mask;
+      if (info.type === 'company' && info.canon) {
+        companyCanonToMask[info.canon] = mask;
+      }
     }
 
-    // Восстанавливаем счётчики из уже имеющихся масок: берём максимум номера для каждого ярлыка.
     const counters = {};
     const maskRe = /^\[([А-ЯЁ_]+)_(\d+)\]$/;
     for (const mask of Object.keys(existingDict)) {
@@ -508,10 +533,22 @@
       if (pending.has(f.value)) continue;
 
       const label = PLACEHOLDER_LABELS[f.type] || 'ДАННЫЕ';
-      counters[label] = (counters[label] || 0) + 1;
-      const mask = `[${label}_${counters[label]}]`;
+      let mask, canon = null;
 
-      pending.set(f.value, { mask, type: f.type, meta: f.meta });
+      // Для компаний: ищем существующую маску по каноническому ключу
+      if (f.type === 'company') {
+        canon = canonicalCompanyKey(f.meta);
+        if (canon && companyCanonToMask[canon]) {
+          mask = companyCanonToMask[canon];
+        }
+      }
+      if (!mask) {
+        counters[label] = (counters[label] || 0) + 1;
+        mask = `[${label}_${counters[label]}]`;
+        if (canon) companyCanonToMask[canon] = mask;
+      }
+
+      pending.set(f.value, { mask, type: f.type, meta: f.meta, canon });
       inverse[f.value] = mask;
     }
 
@@ -526,5 +563,6 @@
     validateOgrnip, generateOgrnip,
     findAll,
     buildReplacements,
+    canonicalCompanyKey,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -197,6 +197,52 @@ for (const t of crossLineSamples) {
     anyWithNewline ? 'bad: "' + anyWithNewline.value.replace(/\n/g, '\\n') + '"' : '');
 }
 
+// --- Каноническая группировка компаний ---
+section('Разные формы одной компании → одна маска');
+{
+  const text = 'Публичное акционерное общество «Сбербанк России», (ПАО Сбербанк) заключает...';
+  const finds = Z.findAll(text);
+  const { inverse } = Z.buildReplacements(finds, {});
+  const pairs = Object.entries(inverse);
+  const sbMasks = pairs.filter(([o]) => /Сбербанк/i.test(o)).map(([,m]) => m);
+  check('Обе формы Сбера получили ОДНУ маску',
+    sbMasks.length === 2 && sbMasks[0] === sbMasks[1],
+    'масок: ' + JSON.stringify(sbMasks));
+
+  // Round-trip: маскируем → строим словарь как делает taskpane → демаскируем
+  let masked = text;
+  const dict = {};
+  const orderedOrigs = {};
+  for (const f of finds) {
+    const m = inverse[f.value];
+    if (!dict[m]) dict[m] = { type: f.type, originals: [] };
+    if (!dict[m].originals.includes(f.value)) dict[m].originals.push(f.value);
+    if (f.type === 'company') {
+      const canon = Z.canonicalCompanyKey(f.meta);
+      if (canon) dict[m].canon = canon;
+    }
+  }
+  const pairsSorted = [...new Set(pairs.map(p => p[0]))].sort((a,b) => b.length - a.length);
+  for (const orig of pairsSorted) masked = masked.split(orig).join(inverse[orig]);
+
+  // Демаскировка по позициям
+  const unmaskEntries = Object.entries(dict).sort((a,b) => b[0].length - a[0].length);
+  let restored = masked;
+  for (const [mask, info] of unmaskEntries) {
+    const originals = info.originals;
+    // разбиваем restored по маске, вставляем originals по очереди
+    const parts = restored.split(mask);
+    let rebuilt = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+      const orig = originals[Math.min(i - 1, originals.length - 1)];
+      rebuilt += orig + parts[i];
+    }
+    restored = rebuilt;
+  }
+  check('Round-trip сохраняет оригинальные варианты', restored === text,
+    restored === text ? '' : 'разошлись: "' + restored + '"');
+}
+
 // --- Латинское OOO, компания без кавычек, паспорт, ФИО перед Паспорт/ИНН ---
 section('Регрессии из реальных документов (латиница, без кавычек, паспорт, signature block)');
 const regressionSamples = [
@@ -282,35 +328,22 @@ for (const { t, expect } of addrTests) {
     !!got === expect, got ? 'value="' + got.value + '"' : 'no match');
 }
 
-// Маскировка/демаскировка этого фрагмента
-const mm1 = (() => {
-  const fs = Z.findAll(bankSample);
-  const { inverse } = Z.buildReplacements(fs, {});
-  const pairs = Object.entries(inverse).sort((a, b) => b[0].length - a[0].length);
-  let m = bankSample;
-  const d = {};
-  for (const [orig, mask] of pairs) {
-    m = m.split(orig).join(mask);
-    d[mask] = { original: orig };
-  }
-  return { m, d };
-})();
+// Маскировка/демаскировка этого фрагмента (новая схема с originals[])
+const mm1 = maskText(bankSample);
 
 const leaks2 = ['770101001','044525225','40702810938000223972','30101810400000000225',
-                'А.В.Кукса','Колесников','Куксы'].filter(x => mm1.m.includes(x));
+                'А.В.Кукса','Колесников','Куксы'].filter(x => mm1.masked.includes(x));
 check('В маскированном тексте реквизиты и ФИО не остались', leaks2.length === 0,
   leaks2.length ? 'осталось: ' + leaks2.join(', ') : '');
 
 // Round-trip
-const pairsUn = Object.entries(mm1.d).sort((a, b) => b[0].length - a[0].length);
-let restored2 = mm1.m;
-for (const [mask, info] of pairsUn) restored2 = restored2.split(mask).join(info.original);
+const restored2 = unmaskText(mm1.masked, mm1.dict);
 check('Round-trip для банковского фрагмента', restored2 === bankSample,
   restored2 === bankSample ? '' : 'разошлись');
 
 const bankDet = document.createElement('details');
 bankDet.innerHTML = '<summary>Посмотреть маскированный банковский фрагмент</summary>';
-const bankPre = document.createElement('pre'); bankPre.textContent = mm1.m; bankDet.appendChild(bankPre);
+const bankPre = document.createElement('pre'); bankPre.textContent = mm1.masked; bankDet.appendChild(bankPre);
 out.appendChild(bankDet);
 
 // ===== Round-trip =====
@@ -320,16 +353,32 @@ function maskText(text) {
   const fs = Z.findAll(text);
   const { inverse } = Z.buildReplacements(fs, {});
   const dict = {};
-  for (const [orig, mask] of Object.entries(inverse)) dict[mask] = { original: orig };
-  const pairs = Object.entries(inverse).sort((a, b) => b[0].length - a[0].length);
+  // Новая схема: originals[] в порядке появления
+  for (const f of fs) {
+    const m = inverse[f.value];
+    if (!m) continue;
+    if (!dict[m]) dict[m] = { type: f.type, originals: [] };
+    if (!dict[m].originals.includes(f.value)) dict[m].originals.push(f.value);
+  }
+  const uniqOrigs = [...new Set(fs.map(f => f.value))].sort((a, b) => b.length - a.length);
   let masked = text;
-  for (const [orig, mask] of pairs) masked = masked.split(orig).join(mask);
+  for (const orig of uniqOrigs) masked = masked.split(orig).join(inverse[orig]);
   return { masked, dict };
 }
 function unmaskText(text, dict) {
   const entries = Object.entries(dict).sort((a, b) => b[0].length - a[0].length);
   let r = text;
-  for (const [mask, info] of entries) r = r.split(mask).join(info.original);
+  for (const [mask, info] of entries) {
+    const originals = info.originals || (info.original ? [info.original] : []);
+    if (originals.length === 0) continue;
+    const parts = r.split(mask);
+    let rebuilt = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+      const orig = originals[Math.min(i - 1, originals.length - 1)];
+      rebuilt += orig + parts[i];
+    }
+    r = rebuilt;
+  }
   return r;
 }
 
