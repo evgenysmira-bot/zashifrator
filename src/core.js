@@ -217,6 +217,7 @@
       const start = cm.index;
       const end = start + cm[0].length;
       if (overlaps(start, end)) continue;
+      if (isPublicEntity(cm[0])) continue;
       claim(start, end);
       found.push({
         type: 'company',
@@ -234,6 +235,7 @@
     while ((cnq = companyNoQ.exec(text)) !== null) {
       const start = cnq.index, end = start + cnq[0].length;
       if (overlaps(start, end)) continue;
+      if (isPublicEntity(cnq[0])) continue;
       claim(start, end);
       found.push({
         type: 'company',
@@ -277,6 +279,7 @@
     while ((clnq = companyLongNoQ.exec(text)) !== null) {
       const start = clnq.index, end = start + clnq[0].length;
       if (overlaps(start, end)) continue;
+      if (isPublicEntity(clnq[0])) continue;
       claim(start, end);
       found.push({
         type: 'company',
@@ -608,6 +611,33 @@
     }
 
     return found;
+  }
+
+  // ---------- Публичные организации (не маскируем) ----------
+  // Общеизвестные регуляторы/госорганы — их упоминание в договорах не является
+  // чувствительной информацией. Если совпадение company-регулярок попало на
+  // одну из этих сущностей — пропускаем.
+  // Важно: lookbehind `(?<![А-Яа-яЁё])` обязателен, чтобы «Банк/банк» не матчилось
+  // внутри «Сбербанк», «Альфа-Банк» и т.п. — только как отдельное слово.
+  const PUBLIC_ENTITY_PATTERNS = [
+    /(?<![А-Яа-яЁё])Центральн\S*\s+банк\S*\s+Российск\S*\s+Федераци/i,
+    /(?<![А-Яа-яЁё])[Бб]анк[ауе]?\s+России(?![А-Яа-яЁё])/,
+    /(?<![А-Яа-яЁё])ЦБ\s+РФ(?![А-Яа-яЁё])/,
+    /(?<![А-Яа-яЁё])Правительств\S*\s+Российск\S*\s+Федераци/i,
+    /(?<![А-Яа-яЁё])Правительств\S*\s+РФ(?![А-Яа-яЁё])/i,
+    /(?<![А-Яа-яЁё])[Фф]едеральн\S*\s+налогов\S*\s+служб/i,
+    /(?<![А-Яа-яЁё])ФНС(?:\s+России)?(?![А-Яа-яЁё])/,
+    /(?<![А-Яа-яЁё])[Пп]енсионн\S*\s+фонд/i,
+    /(?<![А-Яа-яЁё])ПФР(?![А-Яа-яЁё])/,
+    /(?<![А-Яа-яЁё])[Фф]едеральн\S*\s+служб\S*\s+судебн\S*/i,
+    /(?<![А-Яа-яЁё])ФССП(?![А-Яа-яЁё])/,
+    /(?<![А-Яа-яЁё])Росреестр/i,
+    /(?<![А-Яа-яЁё])[Мм]инистерств\S*\s+[а-яё]+\s+(?:Российск\S*\s+Федераци|РФ)/i,
+    /(?<![А-Яа-яЁё])Государственн\S*\s+дум\S*/i,
+    /(?<![А-Яа-яЁё])Совет\s+Федераци/i,
+  ];
+  function isPublicEntity(text) {
+    return PUBLIC_ENTITY_PATTERNS.some(re => re.test(text));
   }
 
   // ---------- Канонический ключ для ФИО ----------
