@@ -1,0 +1,15 @@
+node_modules/
+.claude/
+*.log
+.DS_Store
+Thumbs.db
+
+# Локальные HTTPS-сертификаты, если вдруг попадут в папку
+*.pem
+*.key
+*.crt
+
+# Сборки/tmp
+dist/
+build/
+tmp/

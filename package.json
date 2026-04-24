@@ -1,0 +1,16 @@
+{
+  "name": "zashifrator",
+  "version": "0.1.0",
+  "description": "Word add-in for masking/unmasking sensitive data (INN, OGRN, company names)",
+  "private": true,
+  "scripts": {
+    "install-certs": "office-addin-dev-certs install",
+    "start": "node server.js",
+    "sideload": "office-addin-debugging start manifest.xml desktop",
+    "stop": "office-addin-debugging stop manifest.xml"
+  },
+  "devDependencies": {
+    "office-addin-dev-certs": "^1.13.0",
+    "office-addin-debugging": "^5.6.0"
+  }
+}

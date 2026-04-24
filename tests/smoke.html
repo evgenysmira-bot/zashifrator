@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Зашифратор — smoke-тесты ядра</title>
+<style>
+  body { font: 13px/1.4 "Segoe UI", sans-serif; margin: 20px; max-width: 960px; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  h2 { font-size: 14px; margin: 18px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #ddd; }
+  .ok   { color: #107c10; }
+  .fail { color: #a4262c; font-weight: 600; }
+  pre { background: #f6f6f6; padding: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  .result {
+    margin: 12px 0; padding: 10px 14px; border-radius: 4px;
+    font-size: 15px; font-weight: 600;
+  }
+  .result.pass { background: #dff6dd; color: #107c10; }
+  .result.fail { background: #fde7e9; color: #a4262c; }
+  .row { font-family: Consolas, monospace; font-size: 12px; }
+  .badge { display: inline-block; min-width: 42px; text-align: center; padding: 1px 6px; border-radius: 10px; font-size: 10px; margin-right: 6px; }
+  .badge.pass { background: #dff6dd; color: #107c10; }
+  .badge.fail { background: #fde7e9; color: #a4262c; }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Зашифратор — smoke-тесты ядра</h1>
+<div class="result" id="summary">Запускаем…</div>
+<div id="output"></div>
+
+<script src="../src/core.js"></script>
+<script>
+const Z = window.Zashifrator;
+const out = document.getElementById('output');
+
+let pass = 0, fail = 0;
+function section(title) {
+  const h = document.createElement('h2'); h.textContent = title; out.appendChild(h);
+}
+function check(name, cond, detail) {
+  const ok = !!cond;
+  if (ok) pass++; else fail++;
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `<span class="badge ${ok ? 'pass' : 'fail'}">${ok ? 'ok' : 'FAIL'}</span>${escapeHtml(name)}${detail ? ' — <em>' + escapeHtml(detail) + '</em>' : ''}`;
+  out.appendChild(row);
+}
+function log(msg) {
+  const p = document.createElement('div'); p.className = 'row'; p.textContent = msg; out.appendChild(p);
+}
+function pre(text) {
+  const p = document.createElement('pre'); p.textContent = text; out.appendChild(p);
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+// ===== Валидаторы =====
+section('Валидаторы на известных значениях');
+check('ИНН-10 Сбербанк (7707083893)',   Z.validateInn10('7707083893'));
+check('ИНН-10 Газпром (7736050003)',    Z.validateInn10('7736050003'));
+check('ИНН-10 битый (7707083894)',      !Z.validateInn10('7707083894'));
+check('ОГРН Сбербанк (1027700132195)',  Z.validateOgrn('1027700132195'));
+check('ОГРН битый (1027700132196)',     !Z.validateOgrn('1027700132196'));
+
+// ===== Генераторы =====
+section('Генераторы: сгенерированное проходит свою же валидацию (×20)');
+let genOk = { inn10:0, inn12:0, ogrn:0, ogrnip:0 };
+for (let i = 0; i < 20; i++) {
+  if (Z.validateInn10(Z.generateInn10()))   genOk.inn10++;
+  if (Z.validateInn12(Z.generateInn12()))   genOk.inn12++;
+  if (Z.validateOgrn(Z.generateOgrn()))     genOk.ogrn++;
+  if (Z.validateOgrnip(Z.generateOgrnip())) genOk.ogrnip++;
+}
+check('ИНН-10: 20/20',    genOk.inn10 === 20,   genOk.inn10 + '/20');
+check('ИНН-12: 20/20',    genOk.inn12 === 20,   genOk.inn12 + '/20');
+check('ОГРН: 20/20',      genOk.ogrn === 20,    genOk.ogrn + '/20');
+check('ОГРНИП: 20/20',    genOk.ogrnip === 20,  genOk.ogrnip + '/20');
+
+// ===== findAll =====
+section('findAll на реалистичном договоре');
+
+const sampleText = [
+  'ДОГОВОР ПОСТАВКИ № 42/2026',
+  '',
+  'г. Москва                                                        10 марта 2026 г.',
+  '',
+  'Публичное акционерное общество «Сбербанк России», далее — «Поставщик»,',
+  'ИНН 7707083893, ОГРН 1027700132195, в лице председателя правления',
+  'Иванова И.И., действующего на основании устава, с одной стороны, и',
+  '',
+  'ООО «Ромашка», далее — «Покупатель», ИНН 7736050003,',
+  'ОГРН 1027739552642, в лице генерального директора Петрова П.П.,',
+  '',
+  'а также индивидуальный предприниматель Сидоров С.С. (ИНН 500100732259,',
+  'ОГРНИП 304500116000157), привлекаемый в качестве Субподрядчика,',
+  '',
+  'заключили настоящий договор о нижеследующем.',
+  '',
+  'Реквизиты: р/с 40702810900000012345 в АО «Альфа-Банк», ИНН 7728168971,',
+  'БИК 044525593. Сумма договора: 1 500 000 руб.'
+].join('\n');
+
+const finds = Z.findAll(sampleText);
+const byType = finds.reduce((a, f) => (a[f.type] = (a[f.type] || 0) + 1, a), {});
+log('Типы: ' + JSON.stringify(byType));
+pre(finds.map(f => `[${f.type}] "${f.value}"${f.meta ? ' meta=' + JSON.stringify(f.meta) : ''}`).join('\n'));
+
+check('Нашли Сбербанк ИНН (7707083893)',      finds.some(f => f.value === '7707083893'));
+check('Нашли Сбербанк ОГРН (1027700132195)',  finds.some(f => f.value === '1027700132195'));
+check('Нашли Ромашка ИНН (7736050003)',       finds.some(f => f.value === '7736050003'));
+check('Нашли Ромашка ОГРН (1027739552642)',   finds.some(f => f.value === '1027739552642'));
+check('Нашли ИНН-12 Сидорова (500100732259)', finds.some(f => f.value === '500100732259'));
+check('Нашли ОГРНИП Сидорова (304500116000157)', finds.some(f => f.value === '304500116000157'));
+check('Нашли Альфа ИНН (7728168971)',         finds.some(f => f.value === '7728168971'));
+check('Нашли ООО «Ромашка»',                  finds.some(f => f.type === 'company' && /Ромашка/.test(f.value)));
+check('Нашли АО «Альфа-Банк»',                finds.some(f => f.type === 'company' && /Альфа/.test(f.value)));
+check('ИНН-10 не поглотил часть ОГРН',        !finds.some(f => f.type === 'inn10' && f.value === '1027700132'));
+
+// ===== Round-trip =====
+section('Имитация цикла: маскировка → демаскировка');
+
+function maskText(text) {
+  const fs = Z.findAll(text);
+  const { inverse } = Z.buildReplacements(fs, {});
+  const dict = {};
+  for (const [orig, mask] of Object.entries(inverse)) dict[mask] = { original: orig };
+  const pairs = Object.entries(inverse).sort((a, b) => b[0].length - a[0].length);
+  let masked = text;
+  for (const [orig, mask] of pairs) masked = masked.split(orig).join(mask);
+  return { masked, dict };
+}
+function unmaskText(text, dict) {
+  const entries = Object.entries(dict).sort((a, b) => b[0].length - a[0].length);
+  let r = text;
+  for (const [mask, info] of entries) r = r.split(mask).join(info.original);
+  return r;
+}
+
+const { masked, dict } = maskText(sampleText);
+log('Размер словаря: ' + Object.keys(dict).length);
+
+const det = document.createElement('details');
+det.innerHTML = '<summary>Посмотреть замаскированный текст</summary>';
+const mp = document.createElement('pre'); mp.textContent = masked; det.appendChild(mp);
+out.appendChild(det);
+
+const det2 = document.createElement('details');
+det2.innerHTML = '<summary>Посмотреть словарь замен</summary>';
+const dp = document.createElement('pre');
+dp.textContent = Object.entries(dict).map(([m, i]) => `${i.original}  →  ${m}`).join('\n');
+det2.appendChild(dp);
+out.appendChild(det2);
+
+const restored = unmaskText(masked, dict);
+check('Round-trip идентичен оригиналу', restored === sampleText,
+  restored === sampleText ? '' : 'тексты разошлись — длины: ' + sampleText.length + ' vs ' + restored.length);
+
+const leaks = [
+  '7707083893','1027700132195','7736050003','1027739552642',
+  '500100732259','304500116000157','7728168971',
+  'Ромашка','Сбербанк','Альфа-Банк'
+].filter(x => masked.includes(x));
+check('В замаскированном тексте нет оригинальных значений', leaks.length === 0,
+  leaks.length ? 'осталось: ' + leaks.join(', ') : '');
+
+// Маски сами валидны.
+let maskValidatorOk = true;
+const badMasks = [];
+for (const [mask, info] of Object.entries(dict)) {
+  const o = info.original;
+  let ok = true;
+  if (/^\d{10}$/.test(o))     ok = Z.validateInn10(mask);
+  else if (/^\d{12}$/.test(o))ok = Z.validateInn12(mask);
+  else if (/^\d{13}$/.test(o))ok = Z.validateOgrn(mask);
+  else if (/^\d{15}$/.test(o))ok = Z.validateOgrnip(mask);
+  if (!ok) { maskValidatorOk = false; badMasks.push(`${o} → ${mask}`); }
+}
+check('Все числовые маски валидны по контрольной сумме', maskValidatorOk,
+  badMasks.length ? badMasks.join('; ') : '');
+
+// ===== Итог =====
+const s = document.getElementById('summary');
+s.className = 'result ' + (fail === 0 ? 'pass' : 'fail');
+s.textContent = fail === 0
+  ? `✓ Все ${pass} проверок пройдены`
+  : `✗ ${fail} из ${pass + fail} проверок провалены`;
+
+// Дублируем в title для удобства автоматической проверки
+document.title = (fail === 0 ? 'PASS' : 'FAIL') + ` ${pass}/${pass+fail} — Зашифратор smoke`;
+window.__testSummary = { pass, fail };
+</script>
+</body>
+</html>
