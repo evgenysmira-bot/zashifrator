@@ -197,6 +197,30 @@ for (const t of crossLineSamples) {
     anyWithNewline ? 'bad: "' + anyWithNewline.value.replace(/\n/g, '\\n') + '"' : '');
 }
 
+// --- Регрессии из договора Forumhouse ---
+section('Regression: Forumhouse (адрес с "г,", канонизация ФИО, Контактное лицо)');
+{
+  // 1) Адрес с "Москва г," — маркеры города в сокращении
+  const a1 = Z.findAll('127238, Москва г, Дмитровское ш, дом № 71Б, этаж 6, комната 9')
+    .find(f => f.type === 'address');
+  check('Адрес "Москва г, шоссе, дом №..."', a1 && a1.value.includes('127238'),
+    a1 ? 'ok' : 'miss');
+
+  // 2) Канонизация ФИО: "Иванова Ивана Ивановича" и "Иванов И.И." → одна маска
+  const t = 'Генеральный директор Иванова Ивана Ивановича, действующий.\n/Иванов И.И./';
+  const fs = Z.findAll(t);
+  const { inverse } = Z.buildReplacements(fs, {});
+  const masks = [...new Set(Object.values(inverse))];
+  check('Иванова Ивана Ивановича и Иванов И.И. → одна ФИО-маска',
+    masks.length === 1, 'masks: ' + JSON.stringify(masks));
+
+  // 3) "Контактное лицо\n\nАнна Гунькина" → fio_full
+  const t3 = 'Контактное лицо\n\nАнна Гунькина';
+  const f3 = Z.findAll(t3).find(f => f.type === 'fio_full');
+  check('Контактное лицо → 2-словное ФИО', f3 && f3.value === 'Анна Гунькина',
+    f3 ? 'got="'+f3.value+'"' : 'miss');
+}
+
 // --- Компания с описанием между префиксом и кавычками + подчёркивания вокруг ФИО ---
 section('Префикс + описание + «имя»; ФИО рядом с подчёркиваниями');
 {

@@ -349,7 +349,7 @@
       if (isRoleWord(fm[3])) continue;   // «И.О. Получателя» — роль, не фамилия
       claim(s, e);
       found.push({ type: 'fio_initials', value: fm[0], index: s, length: fm[0].length,
-                   meta: { kind: 'initials_first' } });
+                   meta: { kind: 'initials_first', surname: fm[3] } });
     }
     // 2) Фамилия + инициалы: «Кукса А.В.»
     const fio2 = new RegExp(
@@ -362,7 +362,7 @@
       if (isRoleWord(fm[1])) continue;   // «Получателя А.А.» — роль, не фамилия
       claim(s, e);
       found.push({ type: 'fio_initials', value: fm[0], index: s, length: fm[0].length,
-                   meta: { kind: 'initials_last' } });
+                   meta: { kind: 'initials_last', surname: fm[1] } });
     }
     // 3) Полное ФИО — только в контексте (иначе ловим заголовки типа
     //    «Права Обязанности Сторон»). Триггеры:
@@ -429,17 +429,43 @@
         const end = start + name.length;
         if (overlaps(start, end)) continue;
         claim(start, end);
-        found.push({ type: 'fio_full', value: name, index: start, length: name.length });
+        // Фамилия — первое слово из трёх (русский порядок «Фамилия Имя Отчество»).
+        const firstWord = (name.match(/[А-ЯЁ][а-яё]+/) || [''])[0];
+        found.push({ type: 'fio_full', value: name, index: start, length: name.length,
+                     meta: { surname: firstWord } });
       }
     };
     collectName3(fioBefore);
     collectName3(fioAfter);
 
+    // Контактное лицо / ФИО-метка: ловим 2-словные имена («Анна Гунькина»),
+    // которые обычно стоят после такой метки. БЕЗ триггера два заглавных слова
+    // подряд не ловим — слишком много ложных срабатываний.
+    const NAME2 = '([А-ЯЁ][а-яё]{2,30})[ \\t\\xa0]+([А-ЯЁ][а-яё]{2,30})(?![A-Za-zА-Яа-яЁё0-9])';
+    const fioContact = new RegExp(
+      '(?:[Кк]онтактное[ \\t]+лицо|ФИО|Ф\\.\\s*И\\.\\s*О\\.?)[ \\t]*[:\\-—]?\\s+' + NAME2,
+      'g'
+    );
+    let cp;
+    while ((cp = fioContact.exec(text)) !== null) {
+      // Берём имя — две последние заглавные группы
+      const tail = new RegExp(NAME2);
+      const tm = tail.exec(cp[0]);
+      if (!tm) continue;
+      const nameStart = cp.index + tm.index;
+      const name = tm[0];
+      const nameEnd = nameStart + name.length;
+      if (overlaps(nameStart, nameEnd)) continue;
+      claim(nameStart, nameEnd);
+      found.push({ type: 'fio_full', value: name, index: nameStart, length: name.length,
+                   meta: { surname: tm[2] } }); // во 2-словных именах фамилия — второе слово
+    }
+
     // ---------- Адреса ----------
     // Блок от 6-значного индекса до ближайшего «стопа» или конца абзаца.
     // Стопы: email, телефон, ИНН/КПП/ОГРН, «ИП », «почта», «тел.», «e-mail».
     // В блоке обязателен хотя бы один адресный маркер (г./ул./д. 5 и т.п.).
-    const addrMarkers = /г\.|ул\.|край|переулок|пер\.|проспект|пр-т|пр-д|пгт|шоссе|улица|оф\.|офис|помещ|корпус|корп\.|обл\.|строение|стр\.|р-н|наб\.|площад|пл\.|д\.\s*\d|дом\s+\d|литер/i;
+    const addrMarkers = /г\.|(?:^|[ ,])г[,.]|ул\.|(?:^|[ ,])ул[,.]|край|переулок|пер\.|проспект|пр-т|пр-д|пгт|шоссе|(?:^|[ ,])ш[,.]|улица|оф\.|офис|помещ|корпус|корп\.|обл\.|строение|стр\.|р-н|наб\.|площад|пл\.|д\.\s*\d|дом\s*№?\s*\d|литер|этаж\s*\d|комн(?:ата)?\s*\d|ком\.\s*\d|Москва|[Сс]анкт[\-‐\s]?Петербург|Россия|РФ|область/i;
     const addrStop =
       '(?=' +
         '[,\\s]*(?:' +
@@ -494,6 +520,36 @@
     return found;
   }
 
+  // ---------- Канонический ключ для ФИО ----------
+  // «Иванова Ивана Ивановича» (род.п.) и «Иванов И.И.» — один человек.
+  // Нормализуем фамилию через примитивный стеммер — срезаем типовые русские
+  // суффиксы, получаем общий корень.
+  function nameStem(word) {
+    const w = (word || '').toLowerCase();
+    // Порядок — от длинных к коротким.
+    const suffixes = [
+      'овна', 'евна', 'ович', 'евич',
+      'ового', 'евого', 'ому', 'ему',
+      'овым', 'евым', 'иной', 'ыной',
+      'ову', 'еву', 'иных', 'ыных',
+      'ова', 'ева', 'ина', 'ына',
+      'ов', 'ев', 'ин', 'ын',
+      'ого', 'ему',
+      'ой', 'ая', 'ий', 'ый',
+      'их', 'ых',
+      'ы', 'а', 'я', 'у', 'ю', 'и', 'е'
+    ];
+    for (const sfx of suffixes) {
+      if (w.endsWith(sfx) && w.length - sfx.length >= 3) {
+        return w.substring(0, w.length - sfx.length);
+      }
+    }
+    return w;
+  }
+  function canonicalFioKey(meta) {
+    return meta && meta.surname ? nameStem(meta.surname) : null;
+  }
+
   // ---------- Канонический ключ для компаний ----------
   // Две разные строки — «Публичное акционерное общество «Сбербанк России»»
   // и «ПАО Сбербанк» — это одна и та же компания. Чтобы получить одинаковую
@@ -541,15 +597,16 @@
   // pending: Map<original, {mask, type, meta}>
   function buildReplacements(finds, existingDict) {
     const inverse = {}; // original -> mask
-    // Карта: «канонический ключ компании» -> маска
+    // Карты канонических ключей: по типу
     const companyCanonToMask = {};
-    // Считываем все уже существующие записи — поддерживаем старый формат (original)
-    // и новый (originals[]).
+    const fioCanonToMask = {};
+
     for (const [mask, info] of Object.entries(existingDict)) {
       const originals = info.originals || (info.original ? [info.original] : []);
       for (const orig of originals) inverse[orig] = mask;
-      if (info.type === 'company' && info.canon) {
-        companyCanonToMask[info.canon] = mask;
+      if (info.type === 'company' && info.canon) companyCanonToMask[info.canon] = mask;
+      if ((info.type === 'fio_initials' || info.type === 'fio_full') && info.canon) {
+        fioCanonToMask[info.canon] = mask;
       }
     }
 
@@ -572,17 +629,21 @@
       const label = PLACEHOLDER_LABELS[f.type] || 'ДАННЫЕ';
       let mask, canon = null;
 
-      // Для компаний: ищем существующую маску по каноническому ключу
       if (f.type === 'company') {
         canon = canonicalCompanyKey(f.meta);
-        if (canon && companyCanonToMask[canon]) {
-          mask = companyCanonToMask[canon];
-        }
+        if (canon && companyCanonToMask[canon]) mask = companyCanonToMask[canon];
+      } else if (f.type === 'fio_initials' || f.type === 'fio_full') {
+        canon = canonicalFioKey(f.meta);
+        if (canon && fioCanonToMask[canon]) mask = fioCanonToMask[canon];
       }
+
       if (!mask) {
         counters[label] = (counters[label] || 0) + 1;
         mask = `[${label}_${counters[label]}]`;
-        if (canon) companyCanonToMask[canon] = mask;
+        if (canon && f.type === 'company') companyCanonToMask[canon] = mask;
+        if (canon && (f.type === 'fio_initials' || f.type === 'fio_full')) {
+          fioCanonToMask[canon] = mask;
+        }
       }
 
       pending.set(f.value, { mask, type: f.type, meta: f.meta, canon });
@@ -601,5 +662,7 @@
     findAll,
     buildReplacements,
     canonicalCompanyKey,
+    canonicalFioKey,
+    nameStem,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

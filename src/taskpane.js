@@ -168,6 +168,11 @@ async function onMask() {
           ? Zashifrator.canonicalCompanyKey(p.meta)
           : null);
         if (canon) dict[p.mask].canon = canon;
+      } else if (p.type === 'fio_initials' || p.type === 'fio_full') {
+        const canon = (p.meta && Zashifrator.canonicalFioKey
+          ? Zashifrator.canonicalFioKey(p.meta)
+          : null);
+        if (canon) dict[p.mask].canon = canon;
       }
     }
 
