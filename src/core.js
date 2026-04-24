@@ -629,10 +629,23 @@
     // Сортируем по позиции
     found.sort((a, b) => a.index - b.index);
 
-    // Пост-пасс 1: объединяем «A (B)» — длинная форма и аббревиатура одной компании
-    // получают одинаковый канонический ключ, чтобы быть помечены одной маской.
-    // Также объединяем «Филиал «X» Банка Y» — части одного банка.
-    const companyFinds = found.filter(f => f.type === 'company');
+    // Пост-пасс 1: классифицируем как 'bank' те компании, перед которыми стоит
+    // лейбл «Банк:», «Банк-получатель:» или конструкция «р/с ... в » (счёт + банк).
+    // Без явного контекста — оставляем как 'company', чтобы Сбербанк-контрагент
+    // не превращался автоматически в банк.
+    for (const f of found) {
+      if (f.type !== 'company') continue;
+      const ctx = text.substring(Math.max(0, f.index - 80), f.index);
+      const isBankByLabel =
+        /(?:^|\n)[ \t]*[Бб]анк[ао]?[\-\s]*(?:получатель|плательщик)?[ \t]*:[ \t]*\n?[ \t]*$/.test(ctx) ||
+        /(?:р\/с|расч[её]тный\s+сч[её]т|к\/с|корр\.?\s*сч[её]т|сч[её]т)[ \t]*[№:]?\s*\d{15,20}[ \t]*в[ \t]*$/i.test(ctx) ||
+        /\d{20}[ \t\n\r]*в[ \t]*$/.test(ctx);
+      if (isBankByLabel) f.type = 'bank';
+    }
+
+    // Пост-пасс 1.5: объединяем «A (B)» и «Филиал X Y» — общий канонический ключ.
+    // Если в паре есть банк — обе становятся банком.
+    const companyFinds = found.filter(f => f.type === 'company' || f.type === 'bank');
     for (let i = 0; i < companyFinds.length - 1; i++) {
       const a = companyFinds[i];
       const b = companyFinds[i + 1];
@@ -640,6 +653,8 @@
       // «A (B)» — аббревиатура в скобках
       if (/^[ \t\xa0]*\([ \t\xa0]*$/.test(gap)) {
         if (b.meta && a.meta) b.meta.name = a.meta.name;
+        // Если одна часть — банк, обе становятся банком
+        if (a.type === 'bank' || b.type === 'bank') { a.type = 'bank'; b.type = 'bank'; }
         continue;
       }
       // «Филиал «X» Банка Y» / «Представительство «X» ПАО Y» — части одного банка.
@@ -650,6 +665,7 @@
         if ((ap === 'филиал' || ap === 'представительство') &&
             /^[ \t\xa0]+$/.test(gap) && gap.length <= 5) {
           if (b.meta && a.meta) b.meta.name = a.meta.name;
+          if (a.type === 'bank' || b.type === 'bank') { a.type = 'bank'; b.type = 'bank'; }
         }
       }
     }
@@ -766,6 +782,7 @@
     ogrn:         'ОГРН',
     ogrnip:       'ОГРНИП',
     company:      'КОМПАНИЯ',
+    bank:         'БАНК',
     kpp:          'КПП',
     bik:          'БИК',
     rs:           'РАСЧ_СЧЕТ',
@@ -819,7 +836,7 @@
       const label = PLACEHOLDER_LABELS[f.type] || 'ДАННЫЕ';
       let mask, canon = null;
 
-      if (f.type === 'company') {
+      if (f.type === 'company' || f.type === 'bank') {
         canon = canonicalCompanyKey(f.meta);
         if (canon && companyCanonToMask[canon]) mask = companyCanonToMask[canon];
       } else if (f.type === 'fio_initials' || f.type === 'fio_full') {
@@ -830,7 +847,7 @@
       if (!mask) {
         counters[label] = (counters[label] || 0) + 1;
         mask = `[${label}_${counters[label]}]`;
-        if (canon && f.type === 'company') companyCanonToMask[canon] = mask;
+        if (canon && (f.type === 'company' || f.type === 'bank')) companyCanonToMask[canon] = mask;
         if (canon && (f.type === 'fio_initials' || f.type === 'fio_full')) {
           fioCanonToMask[canon] = mask;
         }

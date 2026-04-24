@@ -115,7 +115,7 @@ check('Нашли ИНН-12 Сидорова (500100732259)', finds.some(f => f.
 check('Нашли ОГРНИП Сидорова (304500116000157)', finds.some(f => f.value === '304500116000157'));
 check('Нашли Альфа ИНН (7728168971)',         finds.some(f => f.value === '7728168971'));
 check('Нашли ООО «Ромашка»',                  finds.some(f => f.type === 'company' && /Ромашка/.test(f.value)));
-check('Нашли АО «Альфа-Банк»',                finds.some(f => f.type === 'company' && /Альфа/.test(f.value)));
+check('Нашли АО «Альфа-Банк»',                finds.some(f => (f.type === 'company' || f.type === 'bank') && /Альфа/.test(f.value)));
 check('ИНН-10 не поглотил часть ОГРН',        !finds.some(f => f.type === 'inn10' && f.value === '1027700132'));
 
 // ===== Банковские реквизиты и ФИО (регрессия по скриншотам пользователя) =====
@@ -347,7 +347,7 @@ section('Разные формы одной компании → одна мас
 section('Регрессии из реальных документов (латиница, без кавычек, паспорт, signature block)');
 const regressionSamples = [
   { t: 'OOO «Поляна» в лице директора', wantType: 'company', wantFragment: 'Поляна' },
-  { t: 'Банк-получатель: ПАО Сбербанк', wantType: 'company', wantFragment: 'Сбербанк' },
+  { t: 'Банк-получатель: ПАО Сбербанк', wantType: 'bank', wantFragment: 'Сбербанк' },
   { t: 'Корр. счет в АО Альфа-Банк', wantType: 'company', wantFragment: 'Альфа-Банк' },
   { t: 'Паспорт 27 08 №123456 выдан', wantType: 'passport', wantFragment: '123456' },
   { t: 'Номер счета: 40702810001400019679 в банке', wantType: 'rs', wantFragment: '40702810001400019679' },
