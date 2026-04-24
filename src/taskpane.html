@@ -6,80 +6,79 @@
   <title>Зашифратор</title>
   <script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
   <style>
-    :root { --accent: #0078d4; --accent-dark: #106ebe; --bg: #faf9f8; --border: #e1dfdd; }
+    :root {
+      --accent: #2f3e5c;
+      --accent-dark: #1f2a3f;
+      --bg: #faf9f8;
+      --border: #e1dfdd;
+      --muted: #605e5c;
+    }
     * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
     body {
       font-family: "Segoe UI", "Segoe UI Web (West European)", Tahoma, sans-serif;
-      margin: 0; padding: 16px; font-size: 14px; color: #252423;
+      padding: 20px 16px;
+      font-size: 14px;
+      color: #252423;
       background: white;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
-    h1 { font-size: 18px; margin: 0 0 4px; }
-    .subtitle { color: #605e5c; font-size: 12px; margin-bottom: 16px; }
+    h1 {
+      font-size: 16px;
+      margin: 0 0 4px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+    .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+
     button {
-      width: 100%; padding: 10px 12px; margin-bottom: 8px;
-      font-size: 14px; cursor: pointer; border-radius: 2px;
-      border: 1px solid var(--border); background: var(--bg);
-      text-align: left; transition: background 0.15s;
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: white;
+      color: #252423;
+      transition: background 0.15s, border-color 0.15s;
     }
-    button:hover:not(:disabled) { background: #f3f2f1; }
+    button:hover:not(:disabled) { background: var(--bg); border-color: #c7c5c2; }
     button:disabled { opacity: 0.5; cursor: default; }
-    button.primary { background: var(--accent); color: white; border-color: var(--accent); }
-    button.primary:hover:not(:disabled) { background: var(--accent-dark); }
-    button.danger { background: white; color: #a4262c; border-color: #a4262c; }
+    button.primary {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+    button.primary:hover:not(:disabled) {
+      background: var(--accent-dark);
+      border-color: var(--accent-dark);
+    }
+
     .status {
-      margin-top: 12px; padding: 10px; background: var(--bg);
-      border-left: 3px solid var(--accent); font-size: 12px; min-height: 42px;
+      padding: 10px 12px;
+      background: var(--bg);
+      border-left: 3px solid var(--accent);
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 38px;
+      border-radius: 2px;
       word-break: break-word;
     }
     .status.error { border-left-color: #a4262c; color: #a4262c; }
-    .section-title {
-      margin: 16px 0 6px; font-size: 12px; font-weight: 600;
-      text-transform: uppercase; color: #605e5c; letter-spacing: 0.4px;
-    }
-    .dict {
-      max-height: 260px; overflow-y: auto; border: 1px solid var(--border);
-      font-size: 11px; font-family: Consolas, "Courier New", monospace;
-    }
-    .dict table { width: 100%; border-collapse: collapse; }
-    .dict th, .dict td {
-      border-bottom: 1px solid var(--border); padding: 4px 6px;
-      text-align: left; vertical-align: top;
-    }
-    .dict th { background: var(--bg); font-weight: 600; position: sticky; top: 0; }
-    .dict td:first-child { color: #605e5c; white-space: nowrap; }
-    .badge {
-      display: inline-block; padding: 1px 6px; border-radius: 10px;
-      background: #deecf9; color: #004578; font-size: 10px; margin-left: 6px;
-    }
-    .checkbox-row { margin: 6px 0; font-size: 13px; }
-    .empty { padding: 12px; color: #605e5c; font-style: italic; text-align: center; }
+    .status.ok    { color: #252423; }
   </style>
 </head>
 <body>
   <h1>Зашифратор</h1>
-  <div class="subtitle">Маскировка ИНН, ОГРН и названий компаний в документе</div>
+  <div class="subtitle">Маскирует ИНН, ОГРН, КПП, БИК, счета, ФИО, адреса, email и телефоны.</div>
 
-  <div class="section-title">Что искать</div>
-  <label class="checkbox-row"><input type="checkbox" id="optInn" checked> ИНН (10 и 12 цифр)</label><br>
-  <label class="checkbox-row"><input type="checkbox" id="optOgrn" checked> ОГРН / ОГРНИП (13, 15 цифр)</label><br>
-  <label class="checkbox-row"><input type="checkbox" id="optCompany" checked> Названия компаний (ООО, АО, ПАО и т.п.)</label><br>
-  <label class="checkbox-row"><input type="checkbox" id="optBank" checked> Банковские реквизиты (КПП, БИК, р/с, к/с)</label><br>
-  <label class="checkbox-row"><input type="checkbox" id="optFio" checked> ФИО (инициалы и полное имя)</label><br>
-  <label class="checkbox-row"><input type="checkbox" id="optAddress" checked> Адреса (с индексом)</label><br>
-  <label class="checkbox-row"><input type="checkbox" id="optContact" checked> Email и телефоны</label>
+  <button id="btnMask"   class="primary">Замаскировать</button>
+  <button id="btnUnmask">Демаскировать</button>
 
-  <div class="section-title">Действия</div>
-  <button id="btnScan">Найти чувствительные данные</button>
-  <button id="btnMask" class="primary">Замаскировать документ</button>
-  <button id="btnUnmask">Демаскировать документ</button>
-  <button id="btnClearDict" class="danger">Очистить словарь замен</button>
-
-  <div class="status" id="status">Откройте документ и нажмите «Найти…», чтобы увидеть, что будет замаскировано.</div>
-
-  <div class="section-title">Словарь замен <span class="badge" id="dictCount">0</span></div>
-  <div class="dict" id="dictContainer">
-    <div class="empty">Словарь пуст</div>
-  </div>
+  <div class="status" id="status">Готов к работе.</div>
 
   <script src="core.js"></script>
   <script src="taskpane.js"></script>
