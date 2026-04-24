@@ -13,3 +13,8 @@ Thumbs.db
 dist/
 build/
 tmp/
+
+# “естовые данные Ч могут содержать ѕƒн
+tests/dogovor*.txt
+tests/*.docx
+
