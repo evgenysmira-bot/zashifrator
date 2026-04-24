@@ -309,6 +309,23 @@
   }
 
   // ---------- Построение карты замен ----------
+  // Все маски имеют формат [ТИП_N]. Одинаковые значения получают одну и ту же маску.
+  // Нумерация сквозная в рамках ярлыка (ИНН-10 и ИНН-12 разделяют счётчик [ИНН_N]).
+  const PLACEHOLDER_LABELS = {
+    inn10:        'ИНН',
+    inn12:        'ИНН',
+    ogrn:         'ОГРН',
+    ogrnip:       'ОГРНИП',
+    company:      'КОМПАНИЯ',
+    kpp:          'КПП',
+    bik:          'БИК',
+    rs:           'РАСЧ_СЧЕТ',
+    ks:           'КОРР_СЧЕТ',
+    fio_initials: 'ФИО',
+    fio_full:     'ФИО',
+    address:      'АДРЕС',
+  };
+
   // dict: { [mask]: { original, type } }
   // pending: Map<original, {mask, type, meta}>
   function buildReplacements(finds, existingDict) {
@@ -317,47 +334,26 @@
       inverse[info.original] = mask;
     }
 
-    let companyN = 0, fioN = 0, addrN = 0;
+    // Восстанавливаем счётчики из уже имеющихся масок: берём максимум номера для каждого ярлыка.
+    const counters = {};
+    const maskRe = /^\[([А-ЯЁ_]+)_(\d+)\]$/;
     for (const mask of Object.keys(existingDict)) {
-      const t = existingDict[mask].type;
-      if (t === 'company') companyN++;
-      else if (t === 'fio_initials' || t === 'fio_full') fioN++;
-      else if (t === 'address') addrN++;
+      const m = maskRe.exec(mask);
+      if (m) {
+        const label = m[1], n = +m[2];
+        if (!counters[label] || counters[label] < n) counters[label] = n;
+      }
     }
-    resetFioCounter(fioN);
-    resetAddrCounter(addrN);
 
     const pending = new Map();
 
     for (const f of finds) {
-      if (inverse[f.value]) continue; // уже в словаре — используем существующую маску
+      if (inverse[f.value]) continue;
       if (pending.has(f.value)) continue;
 
-      let mask;
-      if (f.type === 'inn10')        mask = generateInn10();
-      else if (f.type === 'inn12')   mask = generateInn12();
-      else if (f.type === 'ogrn')    mask = generateOgrn();
-      else if (f.type === 'ogrnip')  mask = generateOgrnip();
-      else if (f.type === 'kpp')     mask = generateKpp();
-      else if (f.type === 'bik')     mask = generateBik();
-      else if (f.type === 'rs')      mask = generateRs();
-      else if (f.type === 'ks')      mask = generateKs();
-      else if (f.type === 'company') {
-        companyN++;
-        const prefix = (f.meta && f.meta.prefix) || 'ООО';
-        mask = `${prefix} «Организация_${companyN}»`;
-      }
-      else if (f.type === 'fio_initials') {
-        const kind = f.meta && f.meta.kind === 'initials_last' ? 'fio_initials_last' : 'fio_initials_first';
-        mask = nextFio(kind);
-      }
-      else if (f.type === 'fio_full') {
-        mask = nextFio('fio_full');
-      }
-      else if (f.type === 'address') {
-        mask = nextAddress();
-      }
-      else continue;
+      const label = PLACEHOLDER_LABELS[f.type] || 'ДАННЫЕ';
+      counters[label] = (counters[label] || 0) + 1;
+      const mask = `[${label}_${counters[label]}]`;
 
       pending.set(f.value, { mask, type: f.type, meta: f.meta });
       inverse[f.value] = mask;

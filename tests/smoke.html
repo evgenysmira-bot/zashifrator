@@ -276,20 +276,16 @@ const leaks = [
 check('В замаскированном тексте нет оригинальных значений', leaks.length === 0,
   leaks.length ? 'осталось: ' + leaks.join(', ') : '');
 
-// Маски сами валидны.
-let maskValidatorOk = true;
-const badMasks = [];
-for (const [mask, info] of Object.entries(dict)) {
-  const o = info.original;
-  let ok = true;
-  if (/^\d{10}$/.test(o))     ok = Z.validateInn10(mask);
-  else if (/^\d{12}$/.test(o))ok = Z.validateInn12(mask);
-  else if (/^\d{13}$/.test(o))ok = Z.validateOgrn(mask);
-  else if (/^\d{15}$/.test(o))ok = Z.validateOgrnip(mask);
-  if (!ok) { maskValidatorOk = false; badMasks.push(`${o} → ${mask}`); }
-}
-check('Все числовые маски валидны по контрольной сумме', maskValidatorOk,
-  badMasks.length ? badMasks.join('; ') : '');
+// Все маски — в формате [ТИП_N]
+const maskFormatRe = /^\[[А-ЯЁ_]+_\d+\]$/;
+const badFmt = Object.keys(dict).filter(m => !maskFormatRe.test(m));
+check('Все маски имеют формат [ТИП_N]', badFmt.length === 0,
+  badFmt.length ? 'не в формате: ' + badFmt.slice(0, 3).join(', ') : '');
+
+// В словаре никакая маска не равна оригиналу (иначе round-trip не сработает)
+const maskEqOrig = Object.entries(dict).filter(([m, i]) => m === i.original);
+check('Маска != оригинал', maskEqOrig.length === 0,
+  maskEqOrig.length ? 'совпали: ' + maskEqOrig.length : '');
 
 // ===== Итог =====
 const s = document.getElementById('summary');
