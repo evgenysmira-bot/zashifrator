@@ -114,10 +114,49 @@ async function searchAllBodies(context, needle) {
 }
 
 async function replaceAllBodies(context, needle, replacement) {
+  // 1) Стандартный путь: body.search → insertText
   const ranges = await searchAllBodies(context, needle);
-  for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
+  if (ranges.length > 0) {
+    for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
+    await context.sync();
+    return ranges.length;
+  }
+  // 2) Фолбэк: ищем параграф, чей текст (после нормализации пробелов и переводов
+  //    строк) содержит нашу строку. body.search ломается, если внутри параграфа
+  //    есть Shift+Enter / soft hyphens / proofErr-маркеры.
+  let count = 0;
+  const norm = s => s.replace(/[\s\u00A0\u00AD\u200B-\u200F\u202A-\u202E\u2060\v]+/g, ' ').trim();
+  const normalizedNeedle = norm(needle);
+  if (normalizedNeedle.length < 5) return 0;
+
+  const bodies = await getAllBodies(context);
+  const allParas = [];
+  for (const body of bodies) {
+    const paras = body.paragraphs;
+    paras.load('text');
+    allParas.push(paras);
+  }
   await context.sync();
-  return ranges.length;
+
+  for (const paras of allParas) {
+    for (const p of paras.items) {
+      const txt = p.text || '';
+      if (!txt) continue;
+      const normTxt = norm(txt);
+      if (!normTxt.includes(normalizedNeedle)) continue;
+      // Восстанавливаем абзац: префикс + маска + суффикс
+      const idx = normTxt.indexOf(normalizedNeedle);
+      const prefix = normTxt.substring(0, idx).replace(/\s+$/, '');
+      const suffix = normTxt.substring(idx + normalizedNeedle.length).replace(/^\s+/, '');
+      const sep1 = prefix && !/[\s.,;:]$/.test(prefix) ? ' ' : '';
+      const sep2 = suffix && !/^[\s.,;:]/.test(suffix) ? ' ' : '';
+      const newText = prefix + sep1 + replacement + sep2 + suffix;
+      p.insertText(newText, Word.InsertLocation.replace);
+      count++;
+    }
+  }
+  await context.sync();
+  return count;
 }
 
 // ----------- Замаскировать -----------
