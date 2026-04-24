@@ -155,8 +155,23 @@ async function onMask() {
       total += await replaceAllBodies(context, original, mask);
     }
 
+    // Пост-пасс: склеиваем подряд идущие одинаковые маски — [X][X] → [X].
+    // Такие дубли появляются из-за соседних run-ов в .docx с идентичным текстом
+    // (артефакт правок / скрытых полей). Визуально в Word это выглядит как одно
+    // значение, но body.search находит его дважды.
+    const uniqMasks = [...new Set(pairs.map(p => p.mask))];
+    let collapsed = 0;
+    for (const mask of uniqMasks) {
+      for (let guard = 0; guard < 10; guard++) {
+        const n = await replaceAllBodies(context, mask + mask, mask);
+        if (n === 0) break;
+        collapsed += n;
+      }
+    }
+
     await saveDict(dict);
-    setStatus(`Замаскировано ${total} вхождений (${pairs.length} уникальных).`, 'ok');
+    const suffix = collapsed > 0 ? `, склеено ${collapsed} дубликатов` : '';
+    setStatus(`Замаскировано ${total} вхождений (${pairs.length} уникальных)${suffix}.`, 'ok');
   });
 }
 
