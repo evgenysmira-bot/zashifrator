@@ -7,78 +7,87 @@
   <script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
   <style>
     :root {
-      --accent: #2f3e5c;
-      --accent-dark: #1f2a3f;
-      --bg: #faf9f8;
-      --border: #e1dfdd;
-      --muted: #605e5c;
+      --primary:       #7c8aa3;   /* мягкий серо-синий */
+      --primary-hover: #6a7992;
+      --secondary:     #f3f4f6;   /* едва серая заливка */
+      --secondary-hover:#e9ebef;
+      --text:          #252423;
+      --muted:         #6e7079;
+      --border:        #e5e7eb;
+      --ok:            #107c10;
+      --err:           #a4262c;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
     body {
       font-family: "Segoe UI", "Segoe UI Web (West European)", Tahoma, sans-serif;
-      padding: 20px 16px;
+      padding: 18px 16px;
       font-size: 14px;
-      color: #252423;
+      color: var(--text);
       background: white;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
     }
-    h1 {
-      font-size: 16px;
-      margin: 0 0 4px;
-      font-weight: 600;
-      letter-spacing: 0.2px;
+    .intro {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
     }
-    .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
 
     button {
       width: 100%;
-      padding: 12px 14px;
+      padding: 11px 14px;
       font-size: 14px;
       font-weight: 500;
       cursor: pointer;
-      border-radius: 4px;
-      border: 1px solid var(--border);
-      background: white;
-      color: #252423;
+      border-radius: 6px;
+      border: 1px solid transparent;
       transition: background 0.15s, border-color 0.15s;
     }
-    button:hover:not(:disabled) { background: var(--bg); border-color: #c7c5c2; }
     button:disabled { opacity: 0.5; cursor: default; }
+
     button.primary {
-      background: var(--accent);
+      background: var(--primary);
       color: white;
-      border-color: var(--accent);
+      border-color: var(--primary);
     }
     button.primary:hover:not(:disabled) {
-      background: var(--accent-dark);
-      border-color: var(--accent-dark);
+      background: var(--primary-hover);
+      border-color: var(--primary-hover);
+    }
+
+    button.secondary {
+      background: var(--secondary);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    button.secondary:hover:not(:disabled) {
+      background: var(--secondary-hover);
+      border-color: #d8dadf;
     }
 
     .status {
-      padding: 10px 12px;
-      background: var(--bg);
-      border-left: 3px solid var(--accent);
+      padding: 9px 12px;
+      background: var(--secondary);
+      border-left: 3px solid var(--primary);
       font-size: 12px;
       color: var(--muted);
-      min-height: 38px;
-      border-radius: 2px;
+      border-radius: 3px;
       word-break: break-word;
     }
-    .status.error { border-left-color: #a4262c; color: #a4262c; }
-    .status.ok    { color: #252423; }
+    .status.hidden { display: none; }
+    .status.error  { border-left-color: var(--err); color: var(--err); background: #fdf2f2; }
+    .status.ok     { border-left-color: var(--ok);  color: var(--text); }
   </style>
 </head>
 <body>
-  <h1>Data Hedgehog</h1>
-  <div class="subtitle">Маскирует ИНН, ОГРН, КПП, БИК, счета, ФИО, адреса, email и телефоны.</div>
+  <div class="intro">До загрузки документа в нейросеть замаскируйте чувствительные данные.</div>
 
   <button id="btnMask"   class="primary">Замаскировать</button>
-  <button id="btnUnmask">Демаскировать</button>
+  <button id="btnUnmask" class="secondary">Демаскировать</button>
 
-  <div class="status" id="status">Готов к работе.</div>
+  <div class="status hidden" id="status"></div>
 
   <script src="core.js"></script>
   <script src="taskpane.js"></script>

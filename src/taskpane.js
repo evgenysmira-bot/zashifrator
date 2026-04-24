@@ -243,7 +243,7 @@ async function onUnmask() {
 function setStatus(text, kind) {
   const el = document.getElementById('status');
   el.textContent = text;
-  el.classList.remove('error', 'ok');
+  el.classList.remove('hidden', 'error', 'ok');
   if (kind) el.classList.add(kind);
 }
 
