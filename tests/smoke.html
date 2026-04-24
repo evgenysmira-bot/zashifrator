@@ -197,6 +197,25 @@ for (const t of crossLineSamples) {
     anyWithNewline ? 'bad: "' + anyWithNewline.value.replace(/\n/g, '\\n') + '"' : '');
 }
 
+// --- Компания с описанием между префиксом и кавычками + подчёркивания вокруг ФИО ---
+section('Префикс + описание + «имя»; ФИО рядом с подчёркиваниями');
+{
+  const c1 = Z.findAll('АНО содействия развитию благотворительной деятельности «ТОЛК»')
+    .find(f => f.type === 'company');
+  check('АНО с описанием → company', c1 && c1.value.includes('«ТОЛК»'),
+    c1 ? 'got="'+c1.value+'"' : 'miss');
+
+  const c2 = Z.findAll('_____________/Савочкина А.Ю.____/').find(f => f.type === 'fio_initials');
+  check('ФИО работает рядом с подчёркиваниями', c2 && c2.value === 'Савочкина А.Ю.',
+    c2 ? 'got="'+c2.value+'"' : 'miss');
+
+  // Не должна перепрыгивать через \r\n
+  const c3 = Z.findAll('АНО\r\nАНО содействия... «ТОЛК»')
+    .find(f => /[\r\n]/.test(f.value));
+  check('Company regex не прыгает через \\r\\n', !c3,
+    c3 ? 'bad: "'+c3.value.replace(/\r?\n/g,'\\n')+'"' : '');
+}
+
 // --- Длинная форма компании БЕЗ кавычек ---
 section('Длинная форма компании без кавычек');
 {
