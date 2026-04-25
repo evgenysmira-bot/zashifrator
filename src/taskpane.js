@@ -100,58 +100,73 @@ async function searchAllBodies(context, needle) {
 async function replaceAllBodies(context, needle, replacement) {
   // 1) Стандартный путь: body.search → insertText (сохраняет форматирование).
   const ranges = await searchAllBodies(context, needle);
-  if (ranges.length > 0) {
-    for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
-    await context.sync();
-    return ranges.length;
-  }
-  // 2) Фолбэк по параграфам — ТОЛЬКО когда body.search не нашёл вообще ничего.
-  //    Раньше пробовали запускать его всегда (для добора пропущенных вхождений
-  //    «Фамилия И.О.» в параграфах с длинными подчёркиваниями), но это ломало
-  //    демаскировку: норма заменяет `\v` (softbreak от Shift+Enter) на пробел,
-  //    после чего `paragraph.insertText(replace)` склеивал куски параграфа в
-  //    одну строку — в шапке арендного договора арендатор/арендодатель
-  //    путались. Возвращаемся к консервативному поведению.
-  return await fallbackParagraphReplace(context, needle, replacement);
+  for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
+  if (ranges.length > 0) await context.sync();
+
+  // 2) Range-based фолбэк выполняется ВСЕГДА: для каждого параграфа берём его
+  //    range и зовём range.search(needle) — он не страдает багом body.search,
+  //    который пропускает вхождения в параграфах с длинными подчёркиваниями
+  //    («____ / Фамилия И.О.») и смешанными run-форматами. Заменяем только
+  //    найденный фрагмент через range.insertText, поэтому softbreaks (`\v`
+  //    от Shift+Enter) и форматирование вокруг сохраняются — в отличие от
+  //    параграф-уровневой замены, которая собирала параграф заново и
+  //    склеивала куски (поломка шапки в арендном договоре).
+  const fallbackCount = await fallbackRangeReplace(context, needle, replacement);
+  return ranges.length + fallbackCount;
 }
 
-async function fallbackParagraphReplace(context, needle, replacement) {
-  let count = 0;
-  const norm = s => s.replace(/[\s\u00A0\u00AD\u200B-\u200F\u202A-\u202E\u2060\v]+/g, ' ').trim();
-  const normalizedNeedle = norm(needle);
-  if (normalizedNeedle.length < 5) return 0;
+async function fallbackRangeReplace(context, needle, replacement) {
+  if (!needle || needle.length < 3) return 0;
 
+  // 1) Загружаем параграфы всех тел.
   const bodies = await getAllBodies(context);
-  const allParas = [];
+  const paraGroups = [];
   for (const body of bodies) {
     try {
       const paras = body.paragraphs;
       paras.load('text');
-      allParas.push(paras);
-    } catch (e) { /* пропускаем тело, если параграфы недоступны */ }
+      paraGroups.push(paras);
+    } catch (e) { /* пропускаем недоступное тело */ }
   }
   try { await context.sync(); }
-  catch (e) { return count; } // если не смогли загрузить параграфы — выходим
+  catch (e) { return 0; }
 
-  for (const paras of allParas) {
+  // 2) Для каждого параграфа, чей текст содержит needle, берём range и
+  //    зовём range.search(). Замена через range.insertText сохраняет
+  //    форматирование и softbreaks вокруг (в отличие от paragraph.insertText,
+  //    который перезаписывает параграф целиком и теряет ).
+  const matchCollections = [];
+  for (const paras of paraGroups) {
     let items;
     try { items = paras.items; } catch (e) { continue; }
     if (!items) continue;
     for (const p of items) {
+      let txt;
+      try { txt = p.text || ''; } catch (e) { continue; }
+      if (!txt || !txt.includes(needle)) continue;
       try {
-        const txt = p.text || '';
-        if (!txt) continue;
-        const normTxt = norm(txt);
-        if (!normTxt.includes(normalizedNeedle)) continue;
-        const idx = normTxt.indexOf(normalizedNeedle);
-        const prefix = normTxt.substring(0, idx).replace(/\s+$/, '');
-        const suffix = normTxt.substring(idx + normalizedNeedle.length).replace(/^\s+/, '');
-        const sep1 = prefix && !/[\s.,;:]$/.test(prefix) ? ' ' : '';
-        const sep2 = suffix && !/^[\s.,;:]/.test(suffix) ? ' ' : '';
-        const newText = prefix + sep1 + replacement + sep2 + suffix;
-        p.insertText(newText, Word.InsertLocation.replace);
+        const r = p.getRange();
+        const m = r.search(needle, { matchCase: true, matchWholeWord: false });
+        m.load('items');
+        matchCollections.push(m);
+      } catch (e) { /* skip */ }
+    }
+  }
+  if (matchCollections.length === 0) return 0;
+  try { await context.sync(); }
+  catch (e) { return 0; }
+
+  // 3) Заменяем все найденные диапазоны точечно.
+  let count = 0;
+  for (const coll of matchCollections) {
+    let items;
+    try { items = coll.items; } catch (e) { continue; }
+    if (!items) continue;
+    for (const r of items) {
+      try {
+        r.insertText(replacement, Word.InsertLocation.replace);
         count++;
-      } catch (e) { /* skip this paragraph */ }
+      } catch (e) { /* skip */ }
     }
   }
   try { await context.sync(); } catch (e) {}
