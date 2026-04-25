@@ -150,6 +150,67 @@ async function replaceAllBodies(context, needle, replacement) {
   return count;
 }
 
+// ----------- Локальный NLP-сайдкар (Natasha) -----------
+// Если на компьютере запущен natasha_service (127.0.0.1:18765), используем
+// его для дополнительного извлечения ФИО/адресов/организаций. Если сервис
+// недоступен — молча работаем только с regex.
+
+const NLP_URL = 'http://127.0.0.1:18765';
+
+let nlpAvailable = null; // null=не проверяли, true/false=кэш
+
+async function isNlpAvailable() {
+  if (nlpAvailable !== null) return nlpAvailable;
+  try {
+    const r = await fetch(NLP_URL + '/health', { method: 'GET' });
+    nlpAvailable = r.ok;
+  } catch {
+    nlpAvailable = false;
+  }
+  return nlpAvailable;
+}
+
+async function nlpExtract(text) {
+  try {
+    const r = await fetch(NLP_URL + '/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return data.spans || [];
+  } catch (e) {
+    console.warn('NLP service unreachable:', e);
+    return [];
+  }
+}
+
+// Слияние NLP-находок с regex-находками. NLP добавляются ТОЛЬКО там, где не
+// перекрываются с уже найденным regex-ом (regex точнее по структуре).
+function mergeNlpSpans(regexFinds, nlpSpans) {
+  const claimed = new Set();
+  for (const f of regexFinds) {
+    for (let i = f.index; i < f.index + f.length; i++) claimed.add(i);
+  }
+  const merged = [...regexFinds];
+  for (const s of nlpSpans) {
+    if (!s.value || s.value.length < 3) continue;
+    const mid = Math.floor((s.start + s.end) / 2);
+    if (claimed.has(mid)) continue;
+    // Добавляем как «пред-найденное», совместимое с regex-форматом.
+    merged.push({
+      type: s.type,
+      value: s.value,
+      index: s.start,
+      length: s.end - s.start,
+      meta: { source: 'nlp' }
+    });
+    for (let i = s.start; i < s.end; i++) claimed.add(i);
+  }
+  return merged;
+}
+
 // ----------- Замаскировать -----------
 
 async function onMask() {
@@ -157,7 +218,13 @@ async function onMask() {
   await Word.run(async (context) => {
     const fullText = await getAllText(context);
 
-    const finds = Zashifrator.findAll(fullText);
+    let finds = Zashifrator.findAll(fullText);
+    // Если на машине запущен natasha-сайдкар, дополняем результаты
+    if (await isNlpAvailable()) {
+      const nlp = await nlpExtract(fullText);
+      finds = mergeNlpSpans(finds, nlp);
+      finds.sort((a, b) => a.index - b.index);
+    }
     if (finds.length === 0) {
       setStatus('Чувствительных данных не найдено.');
       return;
