@@ -681,30 +681,40 @@
     }
 
     // Пост-пасс 1.5: объединяем «A (B)» и «Филиал X Y» — общий канонический ключ.
-    // Если в паре есть банк — обе становятся банком.
+    // Если в паре есть банк — обе становятся банком. Для «Филиал «X» Y» мы ещё
+    // и СКЛЕИВАЕМ обе находки в одну, чтобы при замене не получалось
+    // «[КОМПАНИЯ_3] [КОМПАНИЯ_3]» с пробелом — это типичная картина из-за того,
+    // что два соседних совпадения имели один и тот же канонический ключ.
     const companyFinds = found.filter(f => f.type === 'company' || f.type === 'bank');
     for (let i = 0; i < companyFinds.length - 1; i++) {
       const a = companyFinds[i];
       const b = companyFinds[i + 1];
+      if (a._merged || b._merged) continue;
       const gap = text.substring(a.index + a.length, b.index);
       // «A (B)» — аббревиатура в скобках
       if (/^[ \t\xa0]*\([ \t\xa0]*$/.test(gap)) {
         if (b.meta && a.meta) b.meta.name = a.meta.name;
-        // Если одна часть — банк, обе становятся банком
         if (a.type === 'bank' || b.type === 'bank') { a.type = 'bank'; b.type = 'bank'; }
         continue;
       }
       // «Филиал «X» Банка Y» / «Представительство «X» ПАО Y» — части одного банка.
-      // Проверяем: A — филиал/представительство (в любом регистре), B следует через
-      // короткий пробел.
       if (a.meta && a.meta.prefix) {
         const ap = a.meta.prefix.toLowerCase();
         if ((ap === 'филиал' || ap === 'представительство') &&
             /^[ \t\xa0]+$/.test(gap) && gap.length <= 5) {
           if (b.meta && a.meta) b.meta.name = a.meta.name;
           if (a.type === 'bank' || b.type === 'bank') { a.type = 'bank'; b.type = 'bank'; }
+          // Склеиваем диапазон: a поглощает gap и весь b.
+          const newEnd = b.index + b.length;
+          a.length = newEnd - a.index;
+          a.value = text.substring(a.index, newEnd);
+          b._merged = true;
         }
       }
+    }
+    // Удаляем merged-сущности — они слились с предыдущей.
+    for (let i = found.length - 1; i >= 0; i--) {
+      if (found[i]._merged) found.splice(i, 1);
     }
 
     // Пост-пасс 2: если адрес переносится на следующий абзац и там

@@ -194,6 +194,23 @@ const oq = Z.findAll(openQ);
 check('Поймали Банк АО «РАЙФФАЙЗЕНБАНК (без `»`)',
   oq.some(f => f.type === 'bank' && /РАЙФФАЙЗЕНБАНК/.test(f.value)));
 
+// --- Филиал «X» AO «Y» — должны слиться в ОДНУ находку (иначе [КОМПАНИЯ] [КОМПАНИЯ]) ---
+section('Филиал + банк: склеиваются в одну находку');
+const filialText = 'Филиал «Ростовский» АО «Альфа-Банк» г. Ростов-на-Дону';
+const ft = Z.findAll(filialText);
+const filialFinds = ft.filter(f => f.type === 'bank' || f.type === 'company');
+check('Одна находка вместо двух (Филиал+АО)',
+  filialFinds.length === 1,
+  'нашли: ' + JSON.stringify(filialFinds.map(f => f.value)));
+check('Находка покрывает весь «Филиал «Ростовский» АО «Альфа-Банк»»',
+  filialFinds.length === 1 && /Филиал «Ростовский» АО «Альфа-Банк»/.test(filialFinds[0].value));
+
+// Регрессия — соседние компании через запятую НЕ склеиваются
+const twoCompanies = 'ООО «Ромашка», ПАО «Сбербанк»';
+const tc = Z.findAll(twoCompanies);
+const tcFinds = tc.filter(f => f.type === 'bank' || f.type === 'company');
+check('Запятая разделяет — не склеиваем', tcFinds.length === 2);
+
 // --- Регрессия ложных срабатываний fio_full ---
 section('ФИО: НЕ ловим ложные триплеты без контекста');
 const falsePositives = [
