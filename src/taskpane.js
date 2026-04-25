@@ -98,17 +98,21 @@ async function searchAllBodies(context, needle) {
 }
 
 async function replaceAllBodies(context, needle, replacement) {
-  // 1) Стандартный путь: body.search → insertText (сохраняет форматирование внутри параграфа)
+  // 1) Стандартный путь: body.search → insertText (сохраняет форматирование).
   const ranges = await searchAllBodies(context, needle);
-  for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
-  if (ranges.length > 0) await context.sync();
-
-  // 2) Параграф-фолбэк выполняется ВСЕГДА — body.search в Word нерегулярно пропускает
-  //    вхождения в параграфах с длинными подчёркиваниями («____ / Фамилия И.О.»),
-  //    Shift+Enter и смешанными run-форматами. Параграфы, где body.search уже
-  //    заменил, отфильтруются по `normTxt.includes(needle)` — лишних правок не будет.
-  const fallbackCount = await fallbackParagraphReplace(context, needle, replacement);
-  return ranges.length + fallbackCount;
+  if (ranges.length > 0) {
+    for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
+    await context.sync();
+    return ranges.length;
+  }
+  // 2) Фолбэк по параграфам — ТОЛЬКО когда body.search не нашёл вообще ничего.
+  //    Раньше пробовали запускать его всегда (для добора пропущенных вхождений
+  //    «Фамилия И.О.» в параграфах с длинными подчёркиваниями), но это ломало
+  //    демаскировку: норма заменяет `\v` (softbreak от Shift+Enter) на пробел,
+  //    после чего `paragraph.insertText(replace)` склеивал куски параграфа в
+  //    одну строку — в шапке арендного договора арендатор/арендодатель
+  //    путались. Возвращаемся к консервативному поведению.
+  return await fallbackParagraphReplace(context, needle, replacement);
 }
 
 async function fallbackParagraphReplace(context, needle, replacement) {
