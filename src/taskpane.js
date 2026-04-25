@@ -98,16 +98,20 @@ async function searchAllBodies(context, needle) {
 }
 
 async function replaceAllBodies(context, needle, replacement) {
-  // 1) Стандартный путь: body.search → insertText
+  // 1) Стандартный путь: body.search → insertText (сохраняет форматирование внутри параграфа)
   const ranges = await searchAllBodies(context, needle);
-  if (ranges.length > 0) {
-    for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
-    await context.sync();
-    return ranges.length;
-  }
-  // 2) Фолбэк: ищем параграф, чей текст (после нормализации пробелов и переводов
-  //    строк) содержит нашу строку. body.search ломается, если внутри параграфа
-  //    есть Shift+Enter / soft hyphens / proofErr-маркеры.
+  for (const r of ranges) r.insertText(replacement, Word.InsertLocation.replace);
+  if (ranges.length > 0) await context.sync();
+
+  // 2) Параграф-фолбэк выполняется ВСЕГДА — body.search в Word нерегулярно пропускает
+  //    вхождения в параграфах с длинными подчёркиваниями («____ / Фамилия И.О.»),
+  //    Shift+Enter и смешанными run-форматами. Параграфы, где body.search уже
+  //    заменил, отфильтруются по `normTxt.includes(needle)` — лишних правок не будет.
+  const fallbackCount = await fallbackParagraphReplace(context, needle, replacement);
+  return ranges.length + fallbackCount;
+}
+
+async function fallbackParagraphReplace(context, needle, replacement) {
   let count = 0;
   const norm = s => s.replace(/[\s\u00A0\u00AD\u200B-\u200F\u202A-\u202E\u2060\v]+/g, ' ').trim();
   const normalizedNeedle = norm(needle);
