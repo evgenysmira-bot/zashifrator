@@ -104,6 +104,15 @@
     }
     .status.ok .badge    { color: var(--ok); }
     .status.error .badge { color: var(--err); }
+
+    .footer {
+      margin-top: auto;
+      padding-top: 12px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      letter-spacing: 0.2px;
+    }
   </style>
 </head>
 <body>
@@ -137,6 +146,8 @@
     </svg>
     <span id="statusText"></span>
   </div>
+
+  <div class="footer">v1.3.5.0</div>
 
   <script src="core.js"></script>
   <script src="taskpane.js"></script>
